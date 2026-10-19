@@ -472,9 +472,13 @@ html.lite .piece.walking .p-arm, html.lite .piece.walking .sword, html.lite .pie
 html.lite .sq.check::after, html.lite .sq .ring, html.lite .sq.coach-mark::before { animation: none; }
 
 /* ---------- full-screen play: only the board and the two player tags ---------- */
+/* "Full screen" lives in the top bar while a game is on screen; the ✕ on the board only exists in focus mode */
+.focus-top { display: none; align-items: center; gap: 6px; padding: 0 10px; white-space: nowrap; font-weight: 700; color: var(--gold2); border-color: #e8c06688; }
+body.in-game .focus-top { display: inline-flex; }
 .focus-btn {
+  display: none;
   position: absolute; top: 0; right: 0; z-index: 30; width: 34px; height: 34px; padding: 0;
-  display: grid; place-items: center; font-size: 18px; line-height: 1; border-radius: 10px;
+  place-items: center; font-size: 18px; line-height: 1; border-radius: 10px;
   background: #ffffff10; border: 1px solid var(--panel-border); color: var(--text, #eee); cursor: pointer;
 }
 .focus-btn:hover { border-color: var(--gold); }
@@ -487,8 +491,14 @@ body.focus #stage-game {
   width: min(calc(100vw - 8px), calc((100vh - 96px) / 0.9));
   width: min(calc(100vw - 8px), calc((100dvh - 96px) / 0.9));
 }
-body.focus .focus-btn { opacity: .55; }
+body.focus .focus-btn { display: grid; opacity: .6; }
 body.focus .focus-btn:hover, body.focus .focus-btn:active { opacity: 1; }
+@media (max-width: 420px) {
+  .logo { font-size: 18px; letter-spacing: 0; white-space: nowrap; }
+  .top-actions { gap: 5px; }
+  .top-actions .icon-btn { min-width: 34px; height: 34px; }
+  .focus-top { padding: 0 8px; }
+}
 
 </style>
 </head>
@@ -498,6 +508,7 @@ body.focus .focus-btn:hover, body.focus .focus-btn:active { opacity: 1; }
   <header class="topbar">
     <div class="logo" id="logo">Wizard <span>Chess</span></div>
     <div class="top-actions">
+      <button class="icon-btn focus-top" id="btn-focus-top"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg> <span data-i18n="focusOn"></span></button>
       <button class="icon-btn" id="btn-view" title="2D / 2.5D">2D</button>
       <button class="icon-btn" id="btn-lang" title="Language">TH</button>
       <button class="icon-btn" id="btn-sound" title="Sound">🔊</button>
@@ -578,7 +589,7 @@ body.focus .focus-btn:hover, body.focus .focus-btn:active { opacity: 1; }
   <section id="screen-game" class="screen hidden">
     <div class="game-layout">
       <div class="board-col">
-        <button class="focus-btn" id="btn-focus" aria-label="Full screen">⛶</button>
+        <button class="focus-btn" id="btn-focus" aria-label="Exit full screen">✕</button>
         <div class="player-tag" id="tag-top"></div>
         <div class="stage" id="stage-game"></div>
         <div class="coach-alert hidden" id="coach-alert"></div>
@@ -721,6 +732,7 @@ settings.skin = setSkin(settings.skin);
 
 function show(screen) {
   if (screen !== 'game') setFocus(false);
+  document.body.classList.toggle('in-game', screen === 'game');
   for (const s of ['menu', 'game', 'analysis', 'drills']) $('screen-' + s).classList.toggle('hidden', s !== screen);
   window.scrollTo(0, 0);
 }
@@ -877,12 +889,11 @@ function setFocus(on) {
   } catch {}
 }
 function paintFocus() {
-  const on = document.body.classList.contains('focus');
-  $('btn-focus').textContent = on ? '✕' : '⛶';
-  $('btn-focus').title = t(on ? 'focusOff' : 'focusOn');
-  $('btn-focus').setAttribute('aria-label', t(on ? 'focusOff' : 'focusOn'));
+  $('btn-focus').title = t('focusOff');
+  $('btn-focus').setAttribute('aria-label', t('focusOff'));
 }
-$('btn-focus').onclick = () => setFocus(!document.body.classList.contains('focus'));
+$('btn-focus-top').onclick = () => setFocus(true);
+$('btn-focus').onclick = () => setFocus(false);
 // Esc (or the system gesture) leaving browser full screen also leaves focus mode
 document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) setFocus(false); });
 document.addEventListener('keydown', (e) => {
@@ -4254,6 +4265,9 @@ function part(fx, el, sel, kfs, dur, { origin = '50% 90%' } = {}) {
 function resetPose(el) {
   if (!el) return;
   for (const a of el.getAnimations({ subtree: true })) a.cancel();
+  // part() pivots groups around their own box; hand them back to the CSS poses (kneel etc. pivot in view-box units),
+  // otherwise a pawn that captured kneels with its sword planted far away from its body
+  for (const g of el.querySelectorAll('g[style]')) { g.style.transformBox = ''; g.style.transformOrigin = ''; }
 }
 // Map a point in the piece's 100x140 SVG space to stage coordinates (honours mirroring).
 function svgPt(el, sx, sy, flip = 1, liftPx = 0) {
@@ -4332,24 +4346,24 @@ async function playCapture(view, move) {
       const enp = move.flags.includes('e');
       // draw the sword: pull it up and back
       play('clang');
-      part(fx, att, '.sword', [{ transform: 'rotate(0deg)' }, { transform: 'rotate(-28deg) translateY(-6%)' }, { transform: 'rotate(-62deg) translateY(-10%)' }], 320, { origin: '50% 92%' });
-      await pose(fx, att, [{ transform: 'rotate(0)' }, { transform: 'rotate(-7deg)' }], 320, { flip });
+      part(fx, att, '.sword', [{ transform: 'rotate(0deg)' }, { transform: 'rotate(-16deg) translateY(-2%)' }, { transform: 'rotate(-30deg) translateY(-4%)' }], 280, { origin: '50% 92%' });
+      await pose(fx, att, [{ transform: 'rotate(0)' }, { transform: 'rotate(-4deg)' }], 280, { flip });
       // lunge forward, leaning in
-      pose(fx, att, [{ transform: 'rotate(-7deg)' }, { transform: 'rotate(9deg) translateY(2px)' }], 260, { flip, easing: 'cubic-bezier(.5,0,.2,1)' });
+      pose(fx, att, [{ transform: 'rotate(-4deg)' }, { transform: 'rotate(5deg) translateY(1px)' }], 260, { flip, easing: 'cubic-bezier(.5,0,.2,1)' });
       await view.slide(from, vsq, { t: enp ? 0.48 : 0.52, dur: 260 });
       // the slash: fast swing over the top and down through the victim
-      part(fx, att, '.sword', [{ transform: 'rotate(-62deg) translateY(-10%)' }, { transform: 'rotate(40deg) translateY(-4%)', offset: 0.55 }, { transform: 'rotate(118deg)' }], 170, { origin: '50% 92%', easing: 'cubic-bezier(.6,0,.9,.6)' });
+      part(fx, att, '.sword', [{ transform: 'rotate(-30deg) translateY(-4%)' }, { transform: 'rotate(25deg) translateY(-2%)', offset: 0.55 }, { transform: 'rotate(60deg)' }], 160, { origin: '50% 92%' });
       await fx.wait(70);
       play('slash');
-      fx.slash(vc.x, vc.y - w * 0.05, { r: w * 0.72, a0: dir > 0 ? -2.7 : -0.45, a1: dir > 0 ? 0.6 : 3.75, color: pal.fx, width: w * 0.13, life: 320 });
+      fx.slash(vc.x, vc.y - w * 0.05, { r: w * 0.48, a0: dir > 0 ? -2.2 : -0.95, a1: dir > 0 ? 0.3 : 4.05, color: pal.fx, width: w * 0.08, life: 260 });
       fx.sparks(vc.x - dir * w * 0.1, vc.y, ['#fff', pal.fx, '#ffd0a0'], 18);
       flinch(fx, vic, dir, 1);
       view.shake(4, 220);
       await fx.wait(110);
       await destroy(view, vsq, { impact: { x: vc.x - dir * w * 0.15, y: vc.y }, power: 1.05, dir, imgP });
       // recover: sword back to guard, stand up
-      part(fx, att, '.sword', [{ transform: 'rotate(118deg)' }, { transform: 'rotate(0deg)' }], 320, { origin: '50% 92%' });
-      await pose(fx, att, [{ transform: 'rotate(9deg)' }, { transform: 'rotate(0deg)' }], 220, { flip });
+      part(fx, att, '.sword', [{ transform: 'rotate(60deg)' }, { transform: 'rotate(0deg)' }], 240, { origin: '50% 92%' });
+      await pose(fx, att, [{ transform: 'rotate(5deg)' }, { transform: 'rotate(0deg)' }], 200, { flip });
       await view.slide(from, to, { dur: 260 });
       resetPose(att);
       break;
