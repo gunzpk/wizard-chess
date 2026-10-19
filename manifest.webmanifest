@@ -1,0 +1,15 @@
+{
+  "name": "Wizard Chess",
+  "short_name": "Wizard Chess",
+  "description": "Single-player wizard chess with cinematic captures, an Elo bot, coaching and opening drills.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0a16",
+  "theme_color": "#15122a",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
