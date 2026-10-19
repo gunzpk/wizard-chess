@@ -213,6 +213,8 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
    Motion is deliberately "sprite-like": poses snap frame by frame (steps) at ~12 fps instead of tweening.
    --fxs (effect speed) scales every duration. */
 .piece svg { animation: breathe calc(1.6s / var(--fxs, 1)) steps(1, end) infinite; animation-delay: var(--bd, 0s); transform-origin: 50% 100%; }
+/* pawns are the bulk of the army: a kneeling pawn holds still (16 idle-animated sprites made boards lag) */
+.piece[data-type="p"] svg { animation: none; }
 @keyframes breathe {           /* 4-frame idle */
   0% { transform: scale(1, 1); } 25% { transform: scale(1, 1.012); }
   50% { transform: scale(1.006, 1.024); } 75% { transform: scale(1, 1.012); } }
@@ -463,6 +465,31 @@ body { -webkit-tap-highlight-color: transparent; touch-action: manipulation; } /
   .menu-card { margin: 4px auto; }
 }
 
+/* ---------- smooth mode (fewer effects; default on phones) ---------- */
+html.lite .piece svg { animation: none; }                       /* no idle breathing */
+html.lite .piece.walking .p-leg-f, html.lite .piece.walking .p-leg-b, html.lite .piece.walking .p-upper,
+html.lite .piece.walking .p-arm, html.lite .piece.walking .sword, html.lite .piece.walking .p-shield { animation: none; }
+html.lite .sq.check::after, html.lite .sq .ring, html.lite .sq.coach-mark::before { animation: none; }
+
+/* ---------- full-screen play: only the board and the two player tags ---------- */
+.focus-btn {
+  position: absolute; top: 0; right: 0; z-index: 30; width: 34px; height: 34px; padding: 0;
+  display: grid; place-items: center; font-size: 18px; line-height: 1; border-radius: 10px;
+  background: #ffffff10; border: 1px solid var(--panel-border); color: var(--text, #eee); cursor: pointer;
+}
+.focus-btn:hover { border-color: var(--gold); }
+body.focus .topbar, body.focus #screen-game .side { display: none; }
+body.focus #screen-game { padding: 0 4px; overflow: hidden; }
+body.focus #screen-game .game-layout { min-height: 100vh; min-height: 100dvh; align-items: center; justify-content: center; }
+body.focus #screen-game .board-col { width: auto; }
+body.focus #stage-game {
+  /* the stage is 1 : 0.9; leave room for the two player tags */
+  width: min(calc(100vw - 8px), calc((100vh - 96px) / 0.9));
+  width: min(calc(100vw - 8px), calc((100dvh - 96px) / 0.9));
+}
+body.focus .focus-btn { opacity: .55; }
+body.focus .focus-btn:hover, body.focus .focus-btn:active { opacity: 1; }
+
 </style>
 </head>
 <body>
@@ -539,6 +566,7 @@ body { -webkit-tap-highlight-color: transparent; touch-action: manipulation; } /
           <label class="switch"><input type="checkbox" class="opt-fx-on" checked /><span></span> <i data-i18n="fxEnabled"></i></label>
           <input type="range" class="opt-fx-speed" min="0.25" max="3" step="0.25" value="1" />
         </div>
+        <label class="switch" style="margin-top:8px"><input type="checkbox" class="opt-lite" /><span></span> <i data-i18n="liteMode"></i></label>
       </div>
 
       <button class="big-btn" id="btn-start" data-i18n="startGame"></button>
@@ -550,6 +578,7 @@ body { -webkit-tap-highlight-color: transparent; touch-action: manipulation; } /
   <section id="screen-game" class="screen hidden">
     <div class="game-layout">
       <div class="board-col">
+        <button class="focus-btn" id="btn-focus" aria-label="Full screen">⛶</button>
         <div class="player-tag" id="tag-top"></div>
         <div class="stage" id="stage-game"></div>
         <div class="coach-alert hidden" id="coach-alert"></div>
@@ -573,6 +602,7 @@ body { -webkit-tap-highlight-color: transparent; touch-action: manipulation; } /
             <input type="range" class="opt-fx-speed" min="0.25" max="3" step="0.25" value="1" />
             <b class="fx-speed-val">1.0×</b>
           </div>
+          <label class="switch" style="margin-top:8px"><input type="checkbox" class="opt-lite" /><span></span> <i data-i18n="liteMode"></i></label>
           <div class="skin-picker compact" id="skin-picker-g" style="margin-top:10px"></div>
           <div class="field row" style="margin:8px 0 0">
             <label class="switch"><input type="checkbox" class="opt-hints-g" checked /><span></span> <i data-i18n="moveHints"></i></label>
@@ -659,6 +689,7 @@ const { DrillView } = __req("js/ui/drillView.js");
 const { ELO_PRESETS, eloTitleIndex } = __req("js/bot.js");
 const { t, L, setLang, getLang, onLang, applyStatic } = __req("js/i18n.js");
 const { isSoundOn, setSound } = __req("js/audio.js");
+const { setLite } = __req("js/fx/fxEngine.js");
 const $ = (id) => document.getElementById(id);
 const store = {
   get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
@@ -683,10 +714,13 @@ const settings = {
   skin: store.get('wc-skin', 'war'),
   coach: store.get('wc-coach', '1') === '1',
   coachElo: +store.get('wc-coach-elo', 1000),
+  // smooth mode: on by default for touch screens (phones/tablets), where the full effects lag
+  lite: store.get('wc-lite', matchMedia('(pointer: coarse)').matches ? '1' : '0') === '1',
 };
 settings.skin = setSkin(settings.skin);
 
 function show(screen) {
+  if (screen !== 'game') setFocus(false);
   for (const s of ['menu', 'game', 'analysis', 'drills']) $('screen-' + s).classList.toggle('hidden', s !== screen);
   window.scrollTo(0, 0);
 }
@@ -761,12 +795,14 @@ function saveSettings() {
   store.set('wc-fx-speed', String(settings.fxSpeed));
   store.set('wc-coach', settings.coach ? '1' : '0');
   store.set('wc-coach-elo', String(settings.coachElo));
+  store.set('wc-lite', settings.lite ? '1' : '0');
 }
 function syncSettingsUI() {
   $('opt-guide').checked = settings.guide;
   all('#opt-tactics, .opt-tactics-g').forEach((el) => (el.checked = settings.tactics));
   all('#opt-hints, .opt-hints-g').forEach((el) => (el.checked = settings.hints));
   all('.opt-fx-on').forEach((el) => (el.checked = settings.fxOn));
+  all('.opt-lite').forEach((el) => (el.checked = settings.lite));
   all('.opt-coach').forEach((el) => (el.checked = settings.coach));
   $('coach-elo').value = settings.coachElo;
   $('coach-elo-val').textContent = settings.coachElo;
@@ -775,8 +811,13 @@ function syncSettingsUI() {
   all('.fx-speed-val').forEach((el) => (el.textContent = settings.fxOn ? settings.fxSpeed.toFixed(2).replace(/0$/, '') + '×' : '—'));
 }
 function applyFxSpeedVar() { document.documentElement.style.setProperty('--fxs', String(settings.fxOn ? settings.fxSpeed : 1)); }
+function applyLite() {
+  document.documentElement.classList.toggle('lite', settings.lite);
+  setLite(settings.lite);
+}
 function settingsChanged() {
   applyFxSpeedVar();
+  applyLite();
   saveSettings();
   syncSettingsUI();
   if (game.settings) game.applySettings();
@@ -790,7 +831,9 @@ all('.opt-coach').forEach((el) => (el.onchange = (e) => { settings.coach = e.tar
 $('coach-elo').oninput = (e) => { settings.coachElo = +e.target.value; settingsChanged(); };
 all('.opt-fx-on').forEach((el) => (el.onchange = (e) => { settings.fxOn = e.target.checked; settingsChanged(); }));
 all('.opt-fx-speed').forEach((el) => (el.oninput = (e) => { settings.fxSpeed = +e.target.value; settingsChanged(); }));
+all('.opt-lite').forEach((el) => (el.onchange = (e) => { settings.lite = e.target.checked; settingsChanged(); }));
 applyFxSpeedVar();
+applyLite();
 game.onSettings = settingsChanged;
 
 // ---------- skin picker (menu + in-game card) ----------
@@ -821,6 +864,32 @@ $('btn-start').onclick = () => {
   game.start(settings, color);
 };
 
+// ---------- full-screen play: hide everything but the board (+ browser full screen where supported) ----------
+function setFocus(on) {
+  if (document.body.classList.contains('focus') === on) return;
+  document.body.classList.toggle('focus', on);
+  paintFocus();
+  window.scrollTo(0, 0);
+  const root = document.documentElement;
+  try {
+    if (on && !document.fullscreenElement) root.requestFullscreen?.({ navigationUI: 'hide' })?.catch(() => {});
+    if (!on && document.fullscreenElement) document.exitFullscreen?.()?.catch(() => {});
+  } catch {}
+}
+function paintFocus() {
+  const on = document.body.classList.contains('focus');
+  $('btn-focus').textContent = on ? '✕' : '⛶';
+  $('btn-focus').title = t(on ? 'focusOff' : 'focusOn');
+  $('btn-focus').setAttribute('aria-label', t(on ? 'focusOff' : 'focusOn'));
+}
+$('btn-focus').onclick = () => setFocus(!document.body.classList.contains('focus'));
+// Esc (or the system gesture) leaving browser full screen also leaves focus mode
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) setFocus(false); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !document.fullscreenElement) setFocus(false);
+  if ((e.key === 'f' || e.key === 'F') && !e.metaKey && !e.ctrlKey && !$('screen-game').classList.contains('hidden') && !/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) setFocus(!document.body.classList.contains('focus'));
+});
+
 // ---------- top bar ----------
 function paintTop() {
   $('btn-lang').textContent = getLang() === 'th' ? 'EN' : 'TH';
@@ -829,7 +898,7 @@ function paintTop() {
 $('btn-lang').onclick = () => setLang(getLang() === 'th' ? 'en' : 'th');
 $('btn-sound').onclick = () => { setSound(!isSoundOn()); paintTop(); };
 onLang(() => {
-  paintTop(); paintHint(); paintElo(); applyView(); paintSkins(); syncSettingsUI();
+  paintTop(); paintFocus(); paintHint(); paintElo(); applyView(); paintSkins(); syncSettingsUI();
   if (!$('screen-game').classList.contains('hidden') && game.settings) game.refresh();
   if (!$('screen-analysis').classList.contains('hidden') && analysis.res) analysis.render();
   if (!$('screen-drills').classList.contains('hidden') && drills.drill) { drills.render(); drills.renderList(); }
@@ -841,6 +910,669 @@ setLang(getLang());
 if (new URLSearchParams(location.search).has('debug')) window.WC = { game, analysis, engine, settings, drills };
 
 return {  };
+});
+__def("js/fx/fxEngine.js", function () { 'use strict';
+// Canvas particle / effect engine. All coordinates are stage-relative pixels.
+const TAU = Math.PI * 2;
+const rand = (a, b) => a + Math.random() * (b - a);
+const pick = (arr) => arr[(Math.random() * arr.length) | 0];
+
+// Smooth (lite) mode for phones / slow machines: fewer particles, no canvas glow blur, lower-res canvas.
+let LITE = false;
+const ALL = new Set();
+const isLite = () => LITE;
+function setLite(on) {
+  LITE = !!on;
+  for (const fx of ALL) { fx.applyLite(); fx.resize(); }
+}
+const NO_BLUR = { get: () => 0, set() {}, configurable: true };
+
+class FX {
+  constructor(view) {
+    this.view = view;
+    this.canvas = view.canvas;
+    this.ctx = this.canvas.getContext('2d');
+    this.items = [];
+    this.parts = [];
+    this.speed = 1; // 0 = off, 1 = normal, 2 = fast
+    this.timeScale = 1; // slow-motion multiplier
+    this.skipping = false;
+    this.last = performance.now();
+    this.ox = 0; this.oy = 0;
+    this.drawn = false; // anything on the canvas that the next idle frame must clear?
+    ALL.add(this);
+    this.applyLite();
+    // The loop must never die: an exception in one effect would otherwise freeze the canvas forever.
+    const loop = (t) => {
+      try { this.frame(t); } catch (e) { console.warn('FX frame error', e); this.ctx.setTransform(1, 0, 0, 1, 0, 0); }
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  }
+
+  // shadowBlur is the most expensive canvas op (every glow uses it): turn it into a no-op in lite mode
+  applyLite() {
+    if (LITE) Object.defineProperty(this.ctx, 'shadowBlur', NO_BLUR);
+    else delete this.ctx.shadowBlur;
+  }
+
+  resize() {
+    const r = this.view.stage.getBoundingClientRect();
+    const padX = r.width * 0.15, padY = r.height * 0.32;
+    this.ox = padX; this.oy = padY;
+    const W = r.width + padX * 2, H = r.height + padY * 1.4;
+    const dpr = Math.min(window.devicePixelRatio || 1, LITE ? 1 : 2); // 3x phone screens: 2x looks the same
+    Object.assign(this.canvas.style, { left: -padX + 'px', top: -padY + 'px', width: W + 'px', height: H + 'px' });
+    this.canvas.width = Math.round(W * dpr);
+    this.canvas.height = Math.round(H * dpr);
+    this.dpr = dpr;
+  }
+
+  get rate() { return this.skipping ? 12 : (this.speed || 1) * this.timeScale; }
+  scaleMs(ms) { return this.speed === 0 ? 0 : this.skipping ? ms / 12 : ms / (this.speed * this.timeScale); }
+  // Timer-based (not rAF) so the game keeps flowing even when the tab is hidden.
+  wait(ms) {
+    return new Promise((res) => {
+      if (this.speed === 0) return res();
+      let acc = 0, prev = performance.now();
+      const tick = () => {
+        const now = performance.now();
+        acc += (now - prev) * this.rate; prev = now;
+        if (acc >= ms) res(); else setTimeout(tick, 16);
+      };
+      setTimeout(tick, 16);
+    });
+  }
+
+  clear() { this.items = []; this.parts = []; this.timeScale = 1; this.skipping = false; }
+
+  frame(now) {
+    // Follow real time even at low frame rates (busy machine / background tab), so effects never lag
+    // behind the game; only very long gaps (tab asleep) are capped.
+    const dt = Math.min(250, Math.max(0, now - this.last)) * this.rate;
+    this.last = now;
+    const ctx = this.ctx;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    // idle: nothing to draw — clear once, then leave the canvas alone (no repaint every frame)
+    if (!this.items.length && !this.parts.length) {
+      if (this.drawn) { ctx.clearRect(0, 0, this.canvas.width, this.canvas.height); this.drawn = false; }
+      return;
+    }
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    this.drawn = true;
+    ctx.translate(this.ox, this.oy);
+    // effects
+    this.items = this.items.filter((it) => {
+      it.t += dt;
+      const k = Math.min(1, it.t / it.life);
+      ctx.save();
+      try { it.draw(ctx, k, it.t, dt); }
+      catch (e) { console.warn('FX effect dropped', e); it.t = it.life; }
+      finally { ctx.restore(); }
+      return it.t < it.life;
+    });
+    // particles
+    ctx.save();
+    for (const p of this.parts) {
+      p.t += dt;
+      const s = dt / 16.7;
+      p.vy += p.g * s;
+      p.vx *= Math.pow(p.drag, s); p.vy *= Math.pow(p.drag, s);
+      p.x += p.vx * s; p.y += p.vy * s;
+      if (p.floor != null && p.y > p.floor) { p.y = p.floor; p.vy *= -0.35; p.vx *= 0.6; }
+      p.rot += p.vr * s;
+      const k = Math.min(1, p.t / p.life);
+      if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) { p.t = p.life; continue; }
+      const a = k < 0.15 ? k / 0.15 : 1 - (k - 0.15) / 0.85;
+      ctx.globalAlpha = Math.max(0, a) * p.alpha;
+      ctx.globalCompositeOperation = p.add ? 'lighter' : 'source-over';
+      ctx.fillStyle = p.color;
+      const size = Math.max(0.1, p.size * (p.shrink ? 1 - k * 0.7 : 1 + (p.grow || 0) * k)) || 0.1;
+      if (p.kind === 'shard') {
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+        ctx.beginPath(); ctx.moveTo(-size, -size * 0.6); ctx.lineTo(size, -size * 0.2); ctx.lineTo(-size * 0.2, size); ctx.closePath();
+        ctx.fill(); ctx.strokeStyle = '#0006'; ctx.lineWidth = 0.8; ctx.stroke(); ctx.restore();
+      } else if (p.kind === 'stone') {
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+        ctx.fillRect(-size, -size * 0.7, size * 2, size * 1.4);
+        ctx.strokeStyle = '#0005'; ctx.strokeRect(-size, -size * 0.7, size * 2, size * 1.4); ctx.restore();
+      } else if (p.kind === 'smoke') {
+        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, size);
+        g.addColorStop(0, p.color); g.addColorStop(1, 'transparent');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, size, 0, TAU); ctx.fill();
+      } else if (p.kind === 'streak') {
+        ctx.strokeStyle = p.color; ctx.lineWidth = size; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.vx * 2.2, p.y - p.vy * 2.2); ctx.stroke();
+      } else {
+        ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(0.3, size), 0, TAU); ctx.fill();
+      }
+    }
+    ctx.restore();
+    this.parts = this.parts.filter((p) => p.t < p.life);
+    if (this.parts.length > 2500) this.parts.splice(0, this.parts.length - 2500);
+  }
+
+  add(life, draw) { if (this.speed === 0) return; this.items.push({ t: 0, life, draw }); }
+
+  // ---------- particle helpers ----------
+  burst(x, y, o = {}) {
+    if (this.speed === 0) return;
+    const n = LITE ? Math.ceil((o.count ?? 30) * 0.4) : o.count ?? 30;
+    for (let i = 0; i < n; i++) {
+      const ang = o.angle != null ? o.angle + rand(-(o.spread ?? TAU) / 2, (o.spread ?? TAU) / 2) : rand(0, TAU);
+      const sp = rand(o.minSpeed ?? 1, o.speed ?? 5);
+      this.parts.push({
+        x: x + rand(-(o.jitter ?? 0), o.jitter ?? 0), y: y + rand(-(o.jitterY ?? o.jitter ?? 0), o.jitterY ?? o.jitter ?? 0),
+        vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp * (o.flatten ?? 1) + (o.lift ?? 0),
+        g: o.gravity ?? 0, drag: o.drag ?? 0.96, t: 0, life: rand(o.life * 0.6 || 400, o.life || 700),
+        size: rand(o.minSize ?? 1.2, o.size ?? 3), color: pick(o.colors || ['#fff']), kind: o.kind || 'dot',
+        add: o.add ?? true, alpha: o.alpha ?? 1, rot: rand(0, TAU), vr: rand(-0.3, 0.3), shrink: o.shrink ?? true,
+        grow: o.grow, floor: o.floor,
+      });
+    }
+  }
+  sparks(x, y, colors, n = 26) { this.burst(x, y, { count: n, colors, speed: 7, minSpeed: 2, life: 500, size: 2.2, kind: 'streak', gravity: 0.18 }); }
+  smoke(x, y, color = 'rgba(150,140,130,.55)', n = 14, size = 22) {
+    this.burst(x, y, { count: n, colors: [color], speed: 1.6, life: 1300, size, minSize: size * 0.5, kind: 'smoke', add: false, shrink: false, grow: 0.8, lift: -0.4, jitter: 10, flatten: 0.5, alpha: 0.8 });
+  }
+  shards(x, y, colors, n = 34, floor = null) {
+    this.burst(x, y, { count: n, colors, speed: 7, minSpeed: 2, life: 1300, size: 6, minSize: 2.5, kind: 'shard', gravity: 0.32, add: false, drag: 0.985, lift: -3, jitter: 12, shrink: false, floor });
+  }
+
+  // ---------- shape effects ----------
+  ring(x, y, { rx = 40, ry = 16, color = '#fff', life = 600, width = 4, grow = 1.8 } = {}) {
+    this.add(life, (c, k) => {
+      c.globalCompositeOperation = 'lighter';
+      c.globalAlpha = 1 - k;
+      c.strokeStyle = color; c.lineWidth = width * (1 - k * 0.6);
+      c.shadowColor = color; c.shadowBlur = 14;
+      c.beginPath(); c.ellipse(x, y, rx * (1 + (grow - 1) * k), ry * (1 + (grow - 1) * k), 0, 0, TAU); c.stroke();
+    });
+  }
+  glow(x, y, { r = 50, color = '#fff', life = 600, pulse = false } = {}) {
+    this.add(life, (c, k) => {
+      c.globalCompositeOperation = 'lighter';
+      const a = pulse ? Math.sin(k * Math.PI) : 1 - k;
+      const g = c.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, color); g.addColorStop(1, 'transparent');
+      c.globalAlpha = a; c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill();
+    });
+  }
+  flash(color = '#fff', life = 250, alpha = 0.5) {
+    this.add(life, (c, k) => {
+      c.globalAlpha = (1 - k) * alpha; c.fillStyle = color;
+      c.fillRect(-this.ox, -this.oy, this.canvas.width, this.canvas.height);
+    });
+  }
+  slash(x, y, { r = 50, a0 = -2.4, a1 = 0.6, color = '#fff', life = 380, width = 10 } = {}) {
+    this.add(life, (c, k) => {
+      const head = a0 + (a1 - a0) * Math.min(1, k * 1.6);
+      const tail = a0 + (a1 - a0) * Math.max(0, k * 1.6 - 0.55);
+      c.globalCompositeOperation = 'lighter';
+      c.globalAlpha = k < 0.7 ? 1 : (1 - k) / 0.3;
+      c.shadowColor = color; c.shadowBlur = 18;
+      for (let i = 0; i < 3; i++) {
+        c.strokeStyle = i === 2 ? '#fff' : color; c.lineWidth = width * (1 - i * 0.33); c.lineCap = 'round';
+        c.beginPath(); c.ellipse(x, y, r, r * 0.55, -0.25, tail, head); c.stroke();
+      }
+    });
+  }
+  beam(x1, y1, x2, y2, { color = '#fff', life = 600, width = 12 } = {}) {
+    this.add(life, (c, k) => {
+      const grow = Math.min(1, k * 4);
+      const ex = x1 + (x2 - x1) * grow, ey = y1 + (y2 - y1) * grow;
+      c.globalCompositeOperation = 'lighter';
+      c.globalAlpha = k < 0.75 ? 1 : (1 - k) / 0.25;
+      c.lineCap = 'round'; c.shadowColor = color; c.shadowBlur = 25;
+      const w = width * (0.8 + Math.random() * 0.4);
+      c.strokeStyle = color; c.lineWidth = w; c.beginPath(); c.moveTo(x1, y1); c.lineTo(ex, ey); c.stroke();
+      c.strokeStyle = '#fff'; c.lineWidth = w * 0.35; c.beginPath(); c.moveTo(x1, y1); c.lineTo(ex, ey); c.stroke();
+    });
+  }
+  lightning(x1, y1, x2, y2, { color = '#bfe0ff', life = 450, segs = 12, width = 3, jag = 18 } = {}) {
+    this.add(life, (c, k, t) => {
+      c.globalCompositeOperation = 'lighter';
+      c.globalAlpha = (1 - k) * (Math.random() > 0.15 ? 1 : 0.3);
+      c.shadowColor = color; c.shadowBlur = 16;
+      const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
+      for (let pass = 0; pass < 2; pass++) {
+        c.strokeStyle = pass ? '#fff' : color; c.lineWidth = pass ? width * 0.4 : width;
+        c.beginPath(); c.moveTo(x1, y1);
+        for (let i = 1; i < segs; i++) {
+          const f = i / segs, off = (Math.random() - 0.5) * jag * Math.sin(f * Math.PI) * 2;
+          c.lineTo(x1 + dx * f + nx * off, y1 + dy * f + ny * off);
+        }
+        c.lineTo(x2, y2); c.stroke();
+      }
+    });
+  }
+  // Glowing orb travelling along a (possibly arced) path. Resolves on impact.
+  projectile(x1, y1, x2, y2, { color = '#fff', size = 12, dur = 520, arc = 60, trail = true } = {}) {
+    return new Promise((res) => {
+      if (this.speed === 0) return res();
+      let done = false;
+      this.add(dur, (c, k) => {
+        const e = k;
+        const x = x1 + (x2 - x1) * e, y = y1 + (y2 - y1) * e - Math.sin(e * Math.PI) * arc;
+        c.globalCompositeOperation = 'lighter';
+        const g = c.createRadialGradient(x, y, 0, x, y, size * 2.2);
+        g.addColorStop(0, '#fff'); g.addColorStop(0.35, color); g.addColorStop(1, 'transparent');
+        c.fillStyle = g; c.beginPath(); c.arc(x, y, size * 2.2, 0, TAU); c.fill();
+        if (trail) this.burst(x, y, { count: 3, colors: [color, '#fff'], speed: 1.2, life: 450, size: size * 0.45, jitter: 3 });
+        if (k >= 0.999 && !done) { done = true; res(); }
+      });
+      setTimeout(() => { if (!done) { done = true; res(); } }, this.scaleMs(dur) + 400);
+    });
+  }
+  swirl(x, y, { r = 60, ry = 0.45, color = '#c58cff', life = 900, n = 40, inward = true } = {}) {
+    if (this.speed === 0) return;
+    const ps = Array.from({ length: n }, () => ({ a: rand(0, TAU), r: rand(r * 0.4, r), s: rand(0.004, 0.01), z: rand(-30, 10) }));
+    this.add(life, (c, k, t, dt) => {
+      c.globalCompositeOperation = 'lighter';
+      c.fillStyle = color; c.shadowColor = color; c.shadowBlur = 10;
+      for (const p of ps) {
+        p.a += p.s * dt;
+        const rr = inward ? p.r * (1 - k * 0.85) : p.r * (0.3 + k);
+        const px = x + Math.cos(p.a) * rr, py = y + Math.sin(p.a) * rr * ry + p.z * k;
+        c.globalAlpha = Math.sin(k * Math.PI);
+        c.beginPath(); c.arc(px, py, 2.4, 0, TAU); c.fill();
+      }
+    });
+  }
+  // Runic circle lying flat on the board
+  runeCircle(x, y, { rx = 50, ry = 20, color = '#ff4458', life = 1200, spin = 1 } = {}) {
+    const glyphs = 'ᚠᚢᚦᚨᚱᚲᚷᚹᚺᚾᛁᛃᛇᛈᛉᛊᛏᛒᛖᛗ';
+    this.add(life, (c, k, t) => {
+      const a = k < 0.2 ? k / 0.2 : k > 0.75 ? (1 - k) / 0.25 : 1;
+      c.globalCompositeOperation = 'lighter';
+      c.globalAlpha = a; c.strokeStyle = color; c.fillStyle = color; c.shadowColor = color; c.shadowBlur = 14; c.lineWidth = 2.2;
+      c.beginPath(); c.ellipse(x, y, rx, ry, 0, 0, TAU); c.stroke();
+      c.beginPath(); c.ellipse(x, y, rx * 0.78, ry * 0.78, 0, 0, TAU); c.stroke();
+      c.font = `${Math.max(9, rx * 0.2)}px serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+      for (let i = 0; i < 12; i++) {
+        const ang = (i / 12) * TAU + t * 0.0012 * spin;
+        c.fillText(glyphs[i % glyphs.length], x + Math.cos(ang) * rx * 0.89, y + Math.sin(ang) * ry * 0.89);
+      }
+      c.beginPath();
+      for (let i = 0; i <= 5; i++) {
+        const ang = (i * 2 / 5) * TAU - t * 0.0008 * spin - Math.PI / 2;
+        const px = x + Math.cos(ang) * rx * 0.74, py = y + Math.sin(ang) * ry * 0.74;
+        i ? c.lineTo(px, py) : c.moveTo(px, py);
+      }
+      c.stroke();
+    });
+  }
+  pillar(x, y, { w = 40, h = 260, color = '#ffe28a', life = 1000 } = {}) {
+    this.add(life, (c, k) => {
+      const a = Math.sin(k * Math.PI);
+      c.globalCompositeOperation = 'lighter';
+      const g = c.createLinearGradient(x - w, 0, x + w, 0);
+      g.addColorStop(0, 'transparent'); g.addColorStop(0.5, color); g.addColorStop(1, 'transparent');
+      c.globalAlpha = a; c.fillStyle = g; c.fillRect(x - w, y - h, w * 2, h);
+      c.fillStyle = '#ffffffaa'; c.fillRect(x - w * 0.12, y - h, w * 0.24, h);
+      c.beginPath(); c.ellipse(x, y, w * 1.2, w * 0.45, 0, 0, TAU); c.fill();
+    });
+    this.burst(x, y, { count: 40, colors: [color, '#fff'], speed: 2, life: 1100, size: 2.5, lift: -2.5, jitter: w * 0.6, jitterY: 4 });
+  }
+  dome(x, y, { rx = 80, ry = 70, color = '#8fd3ff', life = 1400 } = {}) {
+    this.add(life, (c, k) => {
+      const a = Math.sin(k * Math.PI);
+      const s = Math.min(1, k * 3);
+      c.globalCompositeOperation = 'lighter';
+      c.globalAlpha = a * 0.9;
+      const g = c.createRadialGradient(x, y, rx * 0.2 * s, x, y, rx * s);
+      g.addColorStop(0, 'transparent'); g.addColorStop(0.8, color + '33'); g.addColorStop(1, color + 'aa');
+      c.fillStyle = g; c.beginPath(); c.ellipse(x, y, rx * s, ry * s, 0, Math.PI, TAU); c.fill();
+      c.strokeStyle = color; c.lineWidth = 2; c.shadowColor = color; c.shadowBlur = 16;
+      c.beginPath(); c.ellipse(x, y, rx * s, ry * s, 0, Math.PI, TAU); c.stroke();
+      for (let i = 1; i < 4; i++) { c.beginPath(); c.ellipse(x, y, rx * s * (i / 4), ry * s, 0, Math.PI, TAU); c.globalAlpha = a * 0.35; c.stroke(); }
+      c.globalAlpha = a * 0.6; c.beginPath(); c.ellipse(x, y, rx * s, ry * s * 0.3, 0, 0, TAU); c.stroke();
+    });
+  }
+  rays(x, y, { color = '#ffe28a', life = 1500, r = 220, n = 14 } = {}) {
+    this.add(life, (c, k, t) => {
+      c.globalCompositeOperation = 'lighter';
+      c.globalAlpha = Math.sin(k * Math.PI) * 0.7;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * TAU + t * 0.0004;
+        const g = c.createLinearGradient(x, y, x + Math.cos(a) * r, y + Math.sin(a) * r);
+        g.addColorStop(0, color); g.addColorStop(1, 'transparent');
+        c.fillStyle = g; c.beginPath(); c.moveTo(x, y);
+        c.lineTo(x + Math.cos(a - 0.08) * r, y + Math.sin(a - 0.08) * r);
+        c.lineTo(x + Math.cos(a + 0.08) * r, y + Math.sin(a + 0.08) * r); c.fill();
+      }
+    });
+  }
+  // Chain of glowing links through points
+  chain(points, { color = '#ffd66b', life = 1800 } = {}) {
+    this.add(life, (c, k, t) => {
+      const a = k < 0.15 ? k / 0.15 : k > 0.8 ? (1 - k) / 0.2 : 1;
+      c.globalCompositeOperation = 'lighter'; c.globalAlpha = a;
+      c.strokeStyle = color; c.lineWidth = 2.5; c.shadowColor = color; c.shadowBlur = 12;
+      for (let s = 0; s < points.length - 1; s++) {
+        const [p, q] = [points[s], points[s + 1]];
+        const len = Math.hypot(q.x - p.x, q.y - p.y), ang = Math.atan2(q.y - p.y, q.x - p.x);
+        const n = Math.max(2, Math.floor(len / 13));
+        const reveal = Math.min(1, k * 3);
+        for (let i = 0; i < n * reveal; i++) {
+          const f = (i + 0.5) / n;
+          c.save(); c.translate(p.x + (q.x - p.x) * f, p.y + (q.y - p.y) * f); c.rotate(ang);
+          c.beginPath(); c.ellipse(0, 0, 6.5, i % 2 ? 1.6 : 3.6, 0, 0, TAU); c.stroke(); c.restore();
+        }
+      }
+    });
+  }
+  // Translucent energy shield (hexagon lattice) shaped like a dome over (x, y) on the board.
+  // Builds up from the ground, a ripple runs over it, then cells flicker out one by one.
+  hexShield(x, y, { rx = 60, ry = 80, color = '#8fd3ff', life = 2200 } = {}) {
+    if (this.speed === 0) return;
+    const cell = Math.max(6, rx / 5.5);
+    const hw = cell * Math.sqrt(3) / 2;
+    const cells = [];
+    for (let row = 0; row * cell * 1.5 < ry + cell; row++) {
+      const cy = y - row * cell * 1.5;
+      for (let col = -Math.ceil(rx / hw); col <= Math.ceil(rx / hw); col++) {
+        const cx = x + col * hw * 2 + (row % 2 ? hw : 0);
+        // inside the dome (upper half-ellipse)?
+        const nx = (cx - x) / rx, ny = (y - cy) / ry;
+        const d = nx * nx + ny * ny;
+        if (d > 1 || cy > y + 1) continue;
+        cells.push({ cx, cy, d, h: (y - cy) / ry, seed: Math.random(), out: 0.72 + Math.random() * 0.25 });
+      }
+    }
+    const hexPath = (c, cx, cy, r) => {
+      c.beginPath();
+      for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + (i * Math.PI) / 3; const px = cx + Math.cos(a) * r, py = cy + Math.sin(a) * r * 0.9; i ? c.lineTo(px, py) : c.moveTo(px, py); }
+      c.closePath();
+    };
+    this.add(life, (c, k, t) => {
+      c.globalCompositeOperation = 'lighter';
+      const build = Math.min(1, k / 0.22);          // grows from the ground up
+      const ripple = (k - 0.3) / 0.25;              // a bright band sweeping upward
+      // dome body glow
+      const domeA = Math.min(1, k / 0.15) * (k > 0.75 ? Math.max(0, 1 - (k - 0.75) / 0.25) : 1);
+      const g = c.createRadialGradient(x, y - ry * 0.35, ry * 0.1, x, y - ry * 0.3, Math.max(rx, ry));
+      g.addColorStop(0, color + '10'); g.addColorStop(0.7, color + '30'); g.addColorStop(1, color + '88');
+      c.globalAlpha = domeA * 0.9; c.fillStyle = g;
+      c.beginPath(); c.ellipse(x, y, rx, ry, 0, Math.PI, Math.PI * 2); c.fill();
+      // hex cells
+      c.lineWidth = 1.7; c.strokeStyle = color; c.shadowColor = color; c.shadowBlur = 10;
+      for (const h of cells) {
+        if (h.h > build) continue;
+        if (k > h.out) continue;                     // flickered out
+        const fres = 0.25 + 0.75 * Math.pow(h.d, 1.5); // brighter near the rim
+        const shimmer = 0.6 + 0.4 * Math.sin(t * 0.006 + h.seed * 12);
+        const band = ripple > 0 && ripple < 1 ? Math.max(0, 1 - Math.abs(h.h - ripple) * 6) : 0;
+        const dying = k > h.out - 0.05 ? (Math.random() < 0.5 ? 0.2 : 1) : 1;
+        c.globalAlpha = Math.min(1, (0.35 + fres * shimmer * 0.75 + band) * dying);
+        hexPath(c, h.cx, h.cy, cell * 0.92);
+        c.fillStyle = color + (band > 0.3 ? '66' : '1c'); c.fill();
+        c.stroke();
+      }
+      // rim + ground ring
+      c.shadowBlur = 16; c.lineWidth = 2;
+      c.globalAlpha = domeA;
+      c.beginPath(); c.ellipse(x, y, rx, ry * build, 0, Math.PI, Math.PI * 2); c.stroke();
+      c.beginPath(); c.ellipse(x, y, rx, rx * 0.32, 0, 0, Math.PI * 2); c.stroke();
+    });
+    // sparkles when cells flicker out
+    setTimeout(() => this.burst(x, y - ry * 0.5, { count: 40, colors: [color, '#fff'], speed: 2.2, life: 900, size: 2, jitter: rx * 0.6, jitterY: ry * 0.4 }), this.scaleMs(life * 0.78));
+  }
+
+  // Rune circuit etched into the board: light runs through `pts` (board-plane points, in order),
+  // lighting a rune ring under each node and leaving a glowing double trace with glyphs, then fades.
+  // `cw`/`ch` = square size on screen. Resolves when the light reaches the last node.
+  runeCircuit(pts, { color = '#ffd66b', life = 3200, travel = 1300, cw = 50, ch = 40 } = {}) {
+    if (this.speed === 0 || pts.length < 2) return Promise.resolve();
+    const segs = [];
+    let total = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1], len = Math.hypot(b.x - a.x, b.y - a.y);
+      segs.push({ a, b, len, start: total }); total += len;
+    }
+    const nodeAt = pts.map((_, i) => (i === 0 ? 0 : segs[i - 1].start + segs[i - 1].len));
+    const glyphSet = 'ᚠᚢᚦᚨᚱᚲᚷᚹᚺᚾᛁᛃᛇᛈᛉᛊᛏᛒᛖᛗᛚᛜᛞᛟ';
+    const glyphs = [];
+    for (let d = cw * 0.55; d < total - cw * 0.4; d += cw * 0.5) glyphs.push({ d, ch: glyphSet[(Math.random() * glyphSet.length) | 0] });
+    const pointAt = (d) => {
+      const sgm = segs.find((s) => d <= s.start + s.len) || segs[segs.length - 1];
+      const f = Math.max(0, Math.min(1, (d - sgm.start) / sgm.len));
+      return { x: sgm.a.x + (sgm.b.x - sgm.a.x) * f, y: sgm.a.y + (sgm.b.y - sgm.a.y) * f, nx: -(sgm.b.y - sgm.a.y) / sgm.len, ny: (sgm.b.x - sgm.a.x) / sgm.len };
+    };
+    const travelK = travel / life;
+    this.add(life, (c, k, t) => {
+      const p = Math.min(1, k / travelK);
+      const reach = total * p;
+      const fade = k > 0.72 ? Math.max(0, 1 - (k - 0.72) / 0.28) : 1;
+      c.globalCompositeOperation = 'lighter';
+      c.lineCap = 'round'; c.lineJoin = 'round';
+      // double trace (two thin parallel lines) + soft glow under it
+      const off = ch * 0.07;
+      for (const [w, a, o] of [[cw * 0.32, 0.3, 0], [2.4, 1, off], [2.4, 1, -off]]) {
+        c.globalAlpha = a * fade; c.strokeStyle = color; c.lineWidth = w; c.shadowColor = color; c.shadowBlur = o ? 12 : 18;
+        c.beginPath();
+        let started = false;
+        for (const sgm of segs) {
+          if (sgm.start > reach) break;
+          const e = Math.min(1, (reach - sgm.start) / sgm.len);
+          const nx = -(sgm.b.y - sgm.a.y) / sgm.len * o, ny = (sgm.b.x - sgm.a.x) / sgm.len * o;
+          if (!started) { c.moveTo(sgm.a.x + nx, sgm.a.y + ny); started = true; }
+          c.lineTo(sgm.a.x + (sgm.b.x - sgm.a.x) * e + nx, sgm.a.y + (sgm.b.y - sgm.a.y) * e + ny);
+        }
+        c.stroke();
+      }
+      // small circuit ticks along the trace
+      c.globalAlpha = 0.7 * fade; c.lineWidth = 1.2; c.shadowBlur = 6;
+      for (let d = cw * 0.3; d < reach; d += cw * 0.25) {
+        const q = pointAt(d), L = off * (Math.floor(d / (cw * 0.25)) % 2 ? 2.6 : 1.6);
+        c.beginPath(); c.moveTo(q.x + q.nx * off, q.y + q.ny * off); c.lineTo(q.x + q.nx * L, q.y + q.ny * L); c.stroke();
+      }
+      // glyphs appear as the light passes
+      c.font = `bold ${Math.max(11, cw * 0.26)}px serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = color;
+      for (const gl of glyphs) {
+        if (gl.d > reach) continue;
+        const q = pointAt(gl.d);
+        c.globalAlpha = Math.min(1, (reach - gl.d) / (cw * 0.6)) * 0.85 * fade;
+        c.fillText(gl.ch, q.x - q.nx * off * 3.2, q.y - q.ny * off * 3.2);
+      }
+      // nodes: rune ring + diamond under each pawn once reached
+      pts.forEach((n, i) => {
+        if (nodeAt[i] > reach) return;
+        const age = (reach - nodeAt[i]) / (total * 0.25 + 1);
+        const pop = Math.min(1, age * 3);
+        const pulse = 1 + Math.sin(t * 0.008 + i) * 0.05;
+        c.globalAlpha = fade * pop; c.shadowBlur = 16; c.lineWidth = 3;
+        c.beginPath(); c.ellipse(n.x, n.y, cw * 0.46 * pulse, ch * 0.46 * pulse, 0, 0, Math.PI * 2); c.stroke();
+        const ng = c.createRadialGradient(n.x, n.y, 0, n.x, n.y, cw * 0.45); ng.addColorStop(0, color + '55'); ng.addColorStop(1, 'transparent');
+        c.fillStyle = ng; c.beginPath(); c.ellipse(n.x, n.y, cw * 0.45, ch * 0.45, 0, 0, Math.PI * 2); c.fill();
+        c.lineWidth = 1; c.setLineDash([3, 4]); c.lineDashOffset = -t * 0.03;
+        c.beginPath(); c.ellipse(n.x, n.y, cw * 0.33, ch * 0.33, 0, 0, Math.PI * 2); c.stroke(); c.setLineDash([]);
+        c.globalAlpha = fade * pop * 0.9; c.fillStyle = '#fff';
+        c.beginPath(); c.moveTo(n.x, n.y - ch * 0.12); c.lineTo(n.x + cw * 0.08, n.y); c.lineTo(n.x, n.y + ch * 0.12); c.lineTo(n.x - cw * 0.08, n.y); c.closePath(); c.fill();
+      });
+      // the running spark
+      if (p < 1) {
+        const q = pointAt(reach);
+        const g = c.createRadialGradient(q.x, q.y, 0, q.x, q.y, cw * 0.35);
+        g.addColorStop(0, '#fff'); g.addColorStop(0.35, color); g.addColorStop(1, 'transparent');
+        c.globalAlpha = 1; c.shadowBlur = 0; c.fillStyle = g;
+        c.beginPath(); c.arc(q.x, q.y, cw * 0.35, 0, Math.PI * 2); c.fill();
+        this.burst(q.x, q.y, { count: 2, colors: [color, '#fff'], speed: 1.4, life: 500, size: 1.8, flatten: 0.5 });
+      }
+    });
+    return this.wait(travel);
+  }
+
+  // A planted banner/flag
+  flag(x, y, { color = '#ffd66b', life = 2200, h = 70 } = {}) {
+    this.add(life, (c, k, t) => {
+      const a = k < 0.1 ? k / 0.1 : k > 0.85 ? (1 - k) / 0.15 : 1;
+      const rise = Math.min(1, k * 5);
+      c.globalAlpha = a;
+      c.strokeStyle = '#3b2e1f'; c.lineWidth = 3;
+      c.beginPath(); c.moveTo(x, y); c.lineTo(x, y - h * rise); c.stroke();
+      c.fillStyle = color; c.shadowColor = color; c.shadowBlur = 12;
+      c.beginPath(); const top = y - h * rise;
+      c.moveTo(x, top);
+      for (let i = 0; i <= 10; i++) c.lineTo(x + i * 3.6, top + Math.sin(t * 0.008 + i * 0.6) * 3);
+      c.lineTo(x + 36, top + 20);
+      for (let i = 10; i >= 0; i--) c.lineTo(x + i * 3.6, top + 20 + Math.sin(t * 0.008 + i * 0.6) * 3);
+      c.fill();
+    });
+  }
+  // Power charge-up: energy streaks are sucked into (x,y), an orb grows and pulses, rays spin, a rune ring
+  // glows on the floor at (fx,fy). Resolves when fully charged.
+  charge(x, y, { color = '#ffd36b', dur = 750, r = 60, floorX = x, floorY = null, ringRx = r, ringRy = r * 0.4 } = {}) {
+    if (this.speed === 0) return Promise.resolve();
+    this.add(dur + 120, (c, k, t) => {
+      const kk = Math.min(1, k * 1.15);
+      // converging streaks
+      for (let i = 0; i < 3; i++) {
+        const a = Math.random() * TAU, d = r * rand(1.4, 2.4), sp = rand(3, 6) * (r / 50);
+        const life = (d / sp) * 16.7;
+        this.parts.push({ x: x + Math.cos(a) * d, y: y + Math.sin(a) * d * 0.8, vx: -Math.cos(a) * sp, vy: -Math.sin(a) * sp * 0.8, g: 0, drag: 1, t: 0, life, size: rand(1.2, 2.4), color: Math.random() < 0.3 ? '#fff' : color, kind: 'streak', add: true, alpha: 1, rot: 0, vr: 0, shrink: false });
+      }
+      c.globalCompositeOperation = 'lighter';
+      // floor rune ring
+      if (floorY != null) {
+        c.globalAlpha = kk * 0.9; c.strokeStyle = color; c.lineWidth = 2; c.shadowColor = color; c.shadowBlur = 14;
+        c.beginPath(); c.ellipse(floorX, floorY, ringRx * (0.6 + kk * 0.5), ringRy * (0.6 + kk * 0.5), 0, 0, TAU); c.stroke();
+        c.setLineDash([4, 6]); c.lineDashOffset = -t * 0.05;
+        c.beginPath(); c.ellipse(floorX, floorY, ringRx * (0.4 + kk * 0.4), ringRy * (0.4 + kk * 0.4), 0, 0, TAU); c.stroke();
+        c.setLineDash([]);
+      }
+      // spinning rays
+      c.globalAlpha = kk * 0.55;
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * TAU + t * 0.004;
+        const len = r * (0.6 + kk * 1.1);
+        const g = c.createLinearGradient(x, y, x + Math.cos(a) * len, y + Math.sin(a) * len);
+        g.addColorStop(0, color); g.addColorStop(1, 'transparent');
+        c.fillStyle = g; c.beginPath(); c.moveTo(x, y);
+        c.lineTo(x + Math.cos(a - 0.06) * len, y + Math.sin(a - 0.06) * len);
+        c.lineTo(x + Math.cos(a + 0.06) * len, y + Math.sin(a + 0.06) * len); c.fill();
+      }
+      // pulsing orb
+      const pr = r * (0.12 + kk * 0.42) * (1 + Math.sin(t * 0.035) * 0.12 * kk);
+      c.globalAlpha = 1;
+      const g = c.createRadialGradient(x, y, 0, x, y, pr * 2.2);
+      g.addColorStop(0, '#ffffff'); g.addColorStop(0.3, color); g.addColorStop(1, 'transparent');
+      c.fillStyle = g; c.beginPath(); c.arc(x, y, pr * 2.2, 0, TAU); c.fill();
+      // crackling arcs around the orb near full charge
+      if (kk > 0.5 && Math.random() < 0.5) {
+        c.strokeStyle = '#fff'; c.lineWidth = 1.2; c.shadowColor = color; c.shadowBlur = 10;
+        const a0 = Math.random() * TAU; c.beginPath();
+        for (let i = 0; i <= 5; i++) { const a = a0 + i * 0.25, rr = pr * rand(1.1, 1.7); i ? c.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr) : c.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+        c.stroke();
+      }
+    });
+    return this.wait(dur);
+  }
+
+  // Glowing cracks spreading over a sprite from the impact point.
+  cracks(x, y, { len = 40, color = '#fff', life = 380, n = 7 } = {}) {
+    if (this.speed === 0) return;
+    const branches = Array.from({ length: n }, () => {
+      const pts = [[0, 0]]; let a = rand(0, TAU), px = 0, py = 0;
+      const segs = 5 + ((Math.random() * 4) | 0);
+      for (let i = 0; i < segs; i++) { a += rand(-0.7, 0.7); const l = (len / segs) * rand(0.7, 1.3); px += Math.cos(a) * l; py += Math.sin(a) * l; pts.push([px, py]); }
+      return pts;
+    });
+    this.add(life, (c, k) => {
+      const grow = Math.min(1, k * 2.2);
+      c.globalCompositeOperation = 'lighter';
+      c.strokeStyle = color; c.shadowColor = color; c.shadowBlur = 8; c.lineWidth = 1.6; c.lineCap = 'round';
+      c.globalAlpha = 1 - Math.max(0, k - 0.7) / 0.3;
+      for (const b of branches) {
+        const m = Math.max(2, Math.ceil(b.length * grow));
+        c.beginPath(); c.moveTo(x, y);
+        for (let i = 1; i < m; i++) c.lineTo(x + b[i][0], y + b[i][1]);
+        c.stroke();
+      }
+    });
+  }
+
+  // Darken the edges of the whole window (cinematic vignette) — a fixed overlay so it fades smoothly
+  // everywhere instead of stopping at the edge of the FX canvas.
+  vignette({ life = 3000, strength = 0.7 } = {}) {
+    if (this.speed === 0) return;
+    const el = document.createElement('div');
+    Object.assign(el.style, {
+      position: 'fixed', inset: '0', pointerEvents: 'none', zIndex: '40',
+      background: `radial-gradient(ellipse at 38% 50%, rgba(0,0,0,0) 30%, rgba(5,0,12,${strength}) 100%)`, opacity: '0',
+    });
+    document.body.appendChild(el);
+    const dur = this.scaleMs(life);
+    el.animate([{ opacity: 0 }, { opacity: 1, offset: 0.12 }, { opacity: 1, offset: 0.8 }, { opacity: 0 }], { duration: dur, fill: 'forwards' });
+    setTimeout(() => el.remove(), dur + 50);
+  }
+
+  // A glowing halo ring hovering (and gently bobbing) at x,y.
+  halo(x, y, { rx = 20, color = '#ffe28a', life = 2400 } = {}) {
+    this.add(life, (c, k, t) => {
+      const a = k < 0.15 ? k / 0.15 : k > 0.75 ? (1 - k) / 0.25 : 1;
+      const yy = y + Math.sin(t * 0.005) * rx * 0.12;
+      c.globalCompositeOperation = 'lighter'; c.globalAlpha = a;
+      c.strokeStyle = color; c.shadowColor = color; c.shadowBlur = 18;
+      c.lineWidth = 3.2; c.beginPath(); c.ellipse(x, yy, rx, rx * 0.32, 0, 0, TAU); c.stroke();
+      c.strokeStyle = '#fff'; c.lineWidth = 1.2; c.beginPath(); c.ellipse(x, yy, rx, rx * 0.32, 0, 0, TAU); c.stroke();
+    });
+  }
+
+  // A golden crown knocked off the king: flies up, spins, bounces on the board and rests.
+  crown(x, y, { color = '#ffd66b', floor = y + 60, size = 14, life = 3600 } = {}) {
+    if (this.speed === 0) return;
+    const b = { x, y, vx: rand(-2.2, 2.2) * (size / 14), vy: -9 * (size / 14), rot: 0, vr: rand(-0.25, 0.25), bounces: 0 };
+    const g = 0.42 * (size / 14);
+    this.add(life, (c, k, t, dt) => {
+      const s = dt / 16.7;
+      if (b.bounces < 4) {
+        b.vy += g * s; b.x += b.vx * s; b.y += b.vy * s; b.rot += b.vr * s;
+        if (b.y > floor) { b.y = floor; b.vy *= -0.4; b.vx *= 0.6; b.vr *= 0.5; b.bounces++; if (b.bounces === 1) this.sparks(b.x, b.y, ['#fff', color], 14); }
+      }
+      const a = k > 0.85 ? (1 - k) / 0.15 : 1;
+      c.save(); c.globalAlpha = a; c.translate(b.x, b.y); c.rotate(b.rot);
+      const w = size, h = size * 0.75;
+      const gr = c.createLinearGradient(-w, -h, w, h);
+      gr.addColorStop(0, '#fff4c4'); gr.addColorStop(0.5, color); gr.addColorStop(1, '#8a5c0c');
+      c.fillStyle = gr; c.strokeStyle = '#3b2a08'; c.lineWidth = 1.2; c.shadowColor = color; c.shadowBlur = 12;
+      c.beginPath();
+      c.moveTo(-w, h * 0.5); c.lineTo(-w, -h * 0.4); c.lineTo(-w * 0.5, h * 0.05); c.lineTo(0, -h * 0.9);
+      c.lineTo(w * 0.5, h * 0.05); c.lineTo(w, -h * 0.4); c.lineTo(w, h * 0.5); c.closePath();
+      c.fill(); c.stroke();
+      c.shadowBlur = 0; c.fillStyle = '#ff3a4e';
+      c.beginPath(); c.arc(0, h * 0.18, size * 0.13, 0, TAU); c.fill();
+      c.restore();
+    });
+  }
+
+  // Firework: a rocket climbs to (x, y) then bursts into falling sparks.
+  firework(x, y, { colors = ['#ffd66b', '#fff'], from = null, rise = 520 } = {}) {
+    if (this.speed === 0) return;
+    const sy = from ?? y + 240;
+    this.add(rise, (c, k) => {
+      const yy = sy + (y - sy) * (1 - Math.pow(1 - k, 2));
+      this.burst(x, yy, { count: 2, colors: ['#ffe9b0', '#fff'], speed: 0.6, life: 380, size: 1.6 });
+    });
+    setTimeout(() => {
+      this.glow(x, y, { r: 60, color: colors[0], life: 380 });
+      this.burst(x, y, { count: 80, colors, speed: 6.5, minSpeed: 2, life: 1500, size: 2.2, kind: 'streak', gravity: 0.06, drag: 0.975 });
+      this.burst(x, y, { count: 30, colors: ['#fff'], speed: 3, life: 900, size: 1.6, gravity: 0.04 });
+    }, this.scaleMs(rise));
+  }
+
+  // Floating text in world space
+  text(x, y, str, { color = '#fff', life = 1200, size = 18 } = {}) {
+    this.add(life, (c, k) => {
+      c.globalAlpha = k < 0.15 ? k / 0.15 : 1 - Math.max(0, k - 0.6) / 0.4;
+      c.font = `700 ${size}px Cinzel, serif`; c.textAlign = 'center';
+      c.fillStyle = color; c.shadowColor = '#000'; c.shadowBlur = 6;
+      c.fillText(str, x, y - k * 30);
+    });
+  }
+}
+
+return { get isLite() { return isLite; }, get setLite() { return setLite; }, get FX() { return FX; } };
 });
 __def("js/audio.js", function () { 'use strict';
 // Cinematic WebAudio synth — no asset files. Layers: war drums, brass, metal partials,
@@ -1012,6 +1744,7 @@ const DICT = {
     guide: 'Opening guide', tacticFx: 'Tactic effects', fxSpeed: 'Effect speed',
     planPending: 'Plan: build the wall first — the attack plan is chosen when the opponent decides where to castle.',
     hintsHidden: 'Move hints are off — find the move yourself! (plan and warnings still shown)',
+    liteMode: 'Smooth mode (fewer effects, less lag)', focusOn: 'Full screen', focusOff: 'Exit full screen',
     moveHints: 'Move hints', fxEnabled: 'Effects', settingsTitle: 'Settings', speed: 'Speed',
     skin: 'Piece skin', urgentStep: 'Do this now',
     drillLeadMove: 'Setup move {n} of {total} — play the Stonewall setup', drillLeadIntro: 'Play White\'s setup from move 1; Black answers. The key moment comes at the end.', drillKey: 'Key moment!', drillOrder: 'Good setup move, but this line plays {san} first — follow its order.', drillPlaySetup: 'Play {san}.',
@@ -1066,6 +1799,7 @@ const DICT = {
     guide: 'ไกด์เปิดเกม', tacticFx: 'เอฟเฟกต์แทคติก', fxSpeed: 'ความเร็วเอฟเฟกต์',
     planPending: 'แผน: สร้างกำแพงให้เสร็จก่อน — แผนบุกจะเลือกเมื่อคู่แข่งตัดสินใจเข้าป้อมฝั่งไหน',
     hintsHidden: 'ปิดคำแนะนำตาเดินอยู่ — ลองหาตาเดินเอง! (ยังแสดงแผนและคำเตือน)',
+    liteMode: 'โหมดลื่น (ลดเอฟเฟกต์ ไม่แลค)', focusOn: 'เต็มจอ', focusOff: 'ออกจากเต็มจอ',
     moveHints: 'แนะนำตาเดิน', fxEnabled: 'เอฟเฟกต์', settingsTitle: 'ตั้งค่า', speed: 'ความเร็ว',
     skin: 'สกินตัวหมาก', urgentStep: 'ทำทันที',
     drillLeadMove: 'ตาเซ็ตอัป {n} จาก {total} — เดินเซ็ตอัป Stonewall', drillLeadIntro: 'เดินเซ็ตอัปของขาวตั้งแต่ตาแรก ดำจะตอบเอง แล้วจะถึงจังหวะสำคัญตอนท้าย', drillKey: 'จังหวะสำคัญ!', drillOrder: 'เป็นตาเซ็ตอัปที่ดี แต่ไลน์นี้เดิน {san} ก่อน — เดินตามลำดับของไลน์', drillPlaySetup: 'เดิน {san}',
@@ -3310,6 +4044,7 @@ __def("js/fx/shatter.js", function () { 'use strict';
 // Real shattering: rasterise the captured piece's sprite, cut it into jittered triangular chunks and
 // throw them with simple rigid-body physics (gravity, spin, bounce on the board, friction, fade).
 const { pieceSVG, getSkin } = __req("js/pieces.js");
+const { isLite } = __req("js/fx/fxEngine.js");
 const imgCache = new Map();
 
 // Promise<HTMLImageElement> of a self-contained piece SVG.
@@ -3344,7 +4079,7 @@ function cut(img, x0, y0, w, h, dpr) {
   };
 
   // jittered grid (denser where the figure is)
-  const cols = 4, rows = 6;
+  const [cols, rows] = isLite() ? [3, 4] : [4, 6];
   const pts = [];
   for (let j = 0; j <= rows; j++) {
     pts[j] = [];
@@ -3607,7 +4342,7 @@ async function playCapture(view, move) {
       await fx.wait(70);
       play('slash');
       fx.slash(vc.x, vc.y - w * 0.05, { r: w * 0.72, a0: dir > 0 ? -2.7 : -0.45, a1: dir > 0 ? 0.6 : 3.75, color: pal.fx, width: w * 0.13, life: 320 });
-      fx.sparks(vc.x - dir * w * 0.1, vc.y, ['#fff', pal.fx, '#ffd0a0'], 34);
+      fx.sparks(vc.x - dir * w * 0.1, vc.y, ['#fff', pal.fx, '#ffd0a0'], 18);
       flinch(fx, vic, dir, 1);
       view.shake(4, 220);
       await fx.wait(110);
@@ -4185,7 +4920,7 @@ class BoardView {
       if (canDrag) {
         drag = { sq, el: pieceEl, sx: e.clientX, sy: e.clientY, moved: false, start: { x: parseFloat(pieceEl.style.left), y: parseFloat(pieceEl.style.top), w: parseFloat(pieceEl.style.width) } };
         if (pieceEl.dataset.pose === 'kneel') pieceEl.dataset.pose = 'stand';
-        stage.setPointerCapture(e.pointerId);
+        try { stage.setPointerCapture(e.pointerId); } catch {} // synthetic/cancelled pointers can't be captured
       }
     });
     stage.addEventListener('pointermove', (e) => {
@@ -4219,645 +4954,6 @@ const restPose = (type) => (type === 'p' ? 'kneel' : 'stand');
 const ARROW_COLORS = { green: '#4fd88a', gold: '#f2c14e', red: '#ff5a6a', blue: '#6ab7ff' };
 
 return { get sqName() { return sqName; }, get sqFile() { return sqFile; }, get sqRank() { return sqRank; }, get isLight() { return isLight; }, get BoardView() { return BoardView; }, get restPose() { return restPose; }, get ARROW_COLORS() { return ARROW_COLORS; } };
-});
-__def("js/fx/fxEngine.js", function () { 'use strict';
-// Canvas particle / effect engine. All coordinates are stage-relative pixels.
-const TAU = Math.PI * 2;
-const rand = (a, b) => a + Math.random() * (b - a);
-const pick = (arr) => arr[(Math.random() * arr.length) | 0];
-
-class FX {
-  constructor(view) {
-    this.view = view;
-    this.canvas = view.canvas;
-    this.ctx = this.canvas.getContext('2d');
-    this.items = [];
-    this.parts = [];
-    this.speed = 1; // 0 = off, 1 = normal, 2 = fast
-    this.timeScale = 1; // slow-motion multiplier
-    this.skipping = false;
-    this.last = performance.now();
-    this.ox = 0; this.oy = 0;
-    // The loop must never die: an exception in one effect would otherwise freeze the canvas forever.
-    const loop = (t) => {
-      try { this.frame(t); } catch (e) { console.warn('FX frame error', e); this.ctx.setTransform(1, 0, 0, 1, 0, 0); }
-      requestAnimationFrame(loop);
-    };
-    requestAnimationFrame(loop);
-  }
-
-  resize() {
-    const r = this.view.stage.getBoundingClientRect();
-    const padX = r.width * 0.15, padY = r.height * 0.32;
-    this.ox = padX; this.oy = padY;
-    const W = r.width + padX * 2, H = r.height + padY * 1.4;
-    const dpr = window.devicePixelRatio || 1;
-    Object.assign(this.canvas.style, { left: -padX + 'px', top: -padY + 'px', width: W + 'px', height: H + 'px' });
-    this.canvas.width = Math.round(W * dpr);
-    this.canvas.height = Math.round(H * dpr);
-    this.dpr = dpr;
-  }
-
-  get rate() { return this.skipping ? 12 : (this.speed || 1) * this.timeScale; }
-  scaleMs(ms) { return this.speed === 0 ? 0 : this.skipping ? ms / 12 : ms / (this.speed * this.timeScale); }
-  // Timer-based (not rAF) so the game keeps flowing even when the tab is hidden.
-  wait(ms) {
-    return new Promise((res) => {
-      if (this.speed === 0) return res();
-      let acc = 0, prev = performance.now();
-      const tick = () => {
-        const now = performance.now();
-        acc += (now - prev) * this.rate; prev = now;
-        if (acc >= ms) res(); else setTimeout(tick, 16);
-      };
-      setTimeout(tick, 16);
-    });
-  }
-
-  clear() { this.items = []; this.parts = []; this.timeScale = 1; this.skipping = false; }
-
-  frame(now) {
-    // Follow real time even at low frame rates (busy machine / background tab), so effects never lag
-    // behind the game; only very long gaps (tab asleep) are capped.
-    const dt = Math.min(250, Math.max(0, now - this.last)) * this.rate;
-    this.last = now;
-    const ctx = this.ctx;
-    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    if (!this.items.length && !this.parts.length) return;
-    ctx.translate(this.ox, this.oy);
-    // effects
-    this.items = this.items.filter((it) => {
-      it.t += dt;
-      const k = Math.min(1, it.t / it.life);
-      ctx.save();
-      try { it.draw(ctx, k, it.t, dt); }
-      catch (e) { console.warn('FX effect dropped', e); it.t = it.life; }
-      finally { ctx.restore(); }
-      return it.t < it.life;
-    });
-    // particles
-    ctx.save();
-    for (const p of this.parts) {
-      p.t += dt;
-      const s = dt / 16.7;
-      p.vy += p.g * s;
-      p.vx *= Math.pow(p.drag, s); p.vy *= Math.pow(p.drag, s);
-      p.x += p.vx * s; p.y += p.vy * s;
-      if (p.floor != null && p.y > p.floor) { p.y = p.floor; p.vy *= -0.35; p.vx *= 0.6; }
-      p.rot += p.vr * s;
-      const k = Math.min(1, p.t / p.life);
-      if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) { p.t = p.life; continue; }
-      const a = k < 0.15 ? k / 0.15 : 1 - (k - 0.15) / 0.85;
-      ctx.globalAlpha = Math.max(0, a) * p.alpha;
-      ctx.globalCompositeOperation = p.add ? 'lighter' : 'source-over';
-      ctx.fillStyle = p.color;
-      const size = Math.max(0.1, p.size * (p.shrink ? 1 - k * 0.7 : 1 + (p.grow || 0) * k)) || 0.1;
-      if (p.kind === 'shard') {
-        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
-        ctx.beginPath(); ctx.moveTo(-size, -size * 0.6); ctx.lineTo(size, -size * 0.2); ctx.lineTo(-size * 0.2, size); ctx.closePath();
-        ctx.fill(); ctx.strokeStyle = '#0006'; ctx.lineWidth = 0.8; ctx.stroke(); ctx.restore();
-      } else if (p.kind === 'stone') {
-        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
-        ctx.fillRect(-size, -size * 0.7, size * 2, size * 1.4);
-        ctx.strokeStyle = '#0005'; ctx.strokeRect(-size, -size * 0.7, size * 2, size * 1.4); ctx.restore();
-      } else if (p.kind === 'smoke') {
-        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, size);
-        g.addColorStop(0, p.color); g.addColorStop(1, 'transparent');
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, size, 0, TAU); ctx.fill();
-      } else if (p.kind === 'streak') {
-        ctx.strokeStyle = p.color; ctx.lineWidth = size; ctx.lineCap = 'round';
-        ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.vx * 2.2, p.y - p.vy * 2.2); ctx.stroke();
-      } else {
-        ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(0.3, size), 0, TAU); ctx.fill();
-      }
-    }
-    ctx.restore();
-    this.parts = this.parts.filter((p) => p.t < p.life);
-    if (this.parts.length > 2500) this.parts.splice(0, this.parts.length - 2500);
-  }
-
-  add(life, draw) { if (this.speed === 0) return; this.items.push({ t: 0, life, draw }); }
-
-  // ---------- particle helpers ----------
-  burst(x, y, o = {}) {
-    if (this.speed === 0) return;
-    const n = o.count ?? 30;
-    for (let i = 0; i < n; i++) {
-      const ang = o.angle != null ? o.angle + rand(-(o.spread ?? TAU) / 2, (o.spread ?? TAU) / 2) : rand(0, TAU);
-      const sp = rand(o.minSpeed ?? 1, o.speed ?? 5);
-      this.parts.push({
-        x: x + rand(-(o.jitter ?? 0), o.jitter ?? 0), y: y + rand(-(o.jitterY ?? o.jitter ?? 0), o.jitterY ?? o.jitter ?? 0),
-        vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp * (o.flatten ?? 1) + (o.lift ?? 0),
-        g: o.gravity ?? 0, drag: o.drag ?? 0.96, t: 0, life: rand(o.life * 0.6 || 400, o.life || 700),
-        size: rand(o.minSize ?? 1.2, o.size ?? 3), color: pick(o.colors || ['#fff']), kind: o.kind || 'dot',
-        add: o.add ?? true, alpha: o.alpha ?? 1, rot: rand(0, TAU), vr: rand(-0.3, 0.3), shrink: o.shrink ?? true,
-        grow: o.grow, floor: o.floor,
-      });
-    }
-  }
-  sparks(x, y, colors, n = 26) { this.burst(x, y, { count: n, colors, speed: 7, minSpeed: 2, life: 500, size: 2.2, kind: 'streak', gravity: 0.18 }); }
-  smoke(x, y, color = 'rgba(150,140,130,.55)', n = 14, size = 22) {
-    this.burst(x, y, { count: n, colors: [color], speed: 1.6, life: 1300, size, minSize: size * 0.5, kind: 'smoke', add: false, shrink: false, grow: 0.8, lift: -0.4, jitter: 10, flatten: 0.5, alpha: 0.8 });
-  }
-  shards(x, y, colors, n = 34, floor = null) {
-    this.burst(x, y, { count: n, colors, speed: 7, minSpeed: 2, life: 1300, size: 6, minSize: 2.5, kind: 'shard', gravity: 0.32, add: false, drag: 0.985, lift: -3, jitter: 12, shrink: false, floor });
-  }
-
-  // ---------- shape effects ----------
-  ring(x, y, { rx = 40, ry = 16, color = '#fff', life = 600, width = 4, grow = 1.8 } = {}) {
-    this.add(life, (c, k) => {
-      c.globalCompositeOperation = 'lighter';
-      c.globalAlpha = 1 - k;
-      c.strokeStyle = color; c.lineWidth = width * (1 - k * 0.6);
-      c.shadowColor = color; c.shadowBlur = 14;
-      c.beginPath(); c.ellipse(x, y, rx * (1 + (grow - 1) * k), ry * (1 + (grow - 1) * k), 0, 0, TAU); c.stroke();
-    });
-  }
-  glow(x, y, { r = 50, color = '#fff', life = 600, pulse = false } = {}) {
-    this.add(life, (c, k) => {
-      c.globalCompositeOperation = 'lighter';
-      const a = pulse ? Math.sin(k * Math.PI) : 1 - k;
-      const g = c.createRadialGradient(x, y, 0, x, y, r);
-      g.addColorStop(0, color); g.addColorStop(1, 'transparent');
-      c.globalAlpha = a; c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill();
-    });
-  }
-  flash(color = '#fff', life = 250, alpha = 0.5) {
-    this.add(life, (c, k) => {
-      c.globalAlpha = (1 - k) * alpha; c.fillStyle = color;
-      c.fillRect(-this.ox, -this.oy, this.canvas.width, this.canvas.height);
-    });
-  }
-  slash(x, y, { r = 50, a0 = -2.4, a1 = 0.6, color = '#fff', life = 380, width = 10 } = {}) {
-    this.add(life, (c, k) => {
-      const head = a0 + (a1 - a0) * Math.min(1, k * 1.6);
-      const tail = a0 + (a1 - a0) * Math.max(0, k * 1.6 - 0.55);
-      c.globalCompositeOperation = 'lighter';
-      c.globalAlpha = k < 0.7 ? 1 : (1 - k) / 0.3;
-      c.shadowColor = color; c.shadowBlur = 18;
-      for (let i = 0; i < 3; i++) {
-        c.strokeStyle = i === 2 ? '#fff' : color; c.lineWidth = width * (1 - i * 0.33); c.lineCap = 'round';
-        c.beginPath(); c.ellipse(x, y, r, r * 0.55, -0.25, tail, head); c.stroke();
-      }
-    });
-  }
-  beam(x1, y1, x2, y2, { color = '#fff', life = 600, width = 12 } = {}) {
-    this.add(life, (c, k) => {
-      const grow = Math.min(1, k * 4);
-      const ex = x1 + (x2 - x1) * grow, ey = y1 + (y2 - y1) * grow;
-      c.globalCompositeOperation = 'lighter';
-      c.globalAlpha = k < 0.75 ? 1 : (1 - k) / 0.25;
-      c.lineCap = 'round'; c.shadowColor = color; c.shadowBlur = 25;
-      const w = width * (0.8 + Math.random() * 0.4);
-      c.strokeStyle = color; c.lineWidth = w; c.beginPath(); c.moveTo(x1, y1); c.lineTo(ex, ey); c.stroke();
-      c.strokeStyle = '#fff'; c.lineWidth = w * 0.35; c.beginPath(); c.moveTo(x1, y1); c.lineTo(ex, ey); c.stroke();
-    });
-  }
-  lightning(x1, y1, x2, y2, { color = '#bfe0ff', life = 450, segs = 12, width = 3, jag = 18 } = {}) {
-    this.add(life, (c, k, t) => {
-      c.globalCompositeOperation = 'lighter';
-      c.globalAlpha = (1 - k) * (Math.random() > 0.15 ? 1 : 0.3);
-      c.shadowColor = color; c.shadowBlur = 16;
-      const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
-      for (let pass = 0; pass < 2; pass++) {
-        c.strokeStyle = pass ? '#fff' : color; c.lineWidth = pass ? width * 0.4 : width;
-        c.beginPath(); c.moveTo(x1, y1);
-        for (let i = 1; i < segs; i++) {
-          const f = i / segs, off = (Math.random() - 0.5) * jag * Math.sin(f * Math.PI) * 2;
-          c.lineTo(x1 + dx * f + nx * off, y1 + dy * f + ny * off);
-        }
-        c.lineTo(x2, y2); c.stroke();
-      }
-    });
-  }
-  // Glowing orb travelling along a (possibly arced) path. Resolves on impact.
-  projectile(x1, y1, x2, y2, { color = '#fff', size = 12, dur = 520, arc = 60, trail = true } = {}) {
-    return new Promise((res) => {
-      if (this.speed === 0) return res();
-      let done = false;
-      this.add(dur, (c, k) => {
-        const e = k;
-        const x = x1 + (x2 - x1) * e, y = y1 + (y2 - y1) * e - Math.sin(e * Math.PI) * arc;
-        c.globalCompositeOperation = 'lighter';
-        const g = c.createRadialGradient(x, y, 0, x, y, size * 2.2);
-        g.addColorStop(0, '#fff'); g.addColorStop(0.35, color); g.addColorStop(1, 'transparent');
-        c.fillStyle = g; c.beginPath(); c.arc(x, y, size * 2.2, 0, TAU); c.fill();
-        if (trail) this.burst(x, y, { count: 3, colors: [color, '#fff'], speed: 1.2, life: 450, size: size * 0.45, jitter: 3 });
-        if (k >= 0.999 && !done) { done = true; res(); }
-      });
-      setTimeout(() => { if (!done) { done = true; res(); } }, this.scaleMs(dur) + 400);
-    });
-  }
-  swirl(x, y, { r = 60, ry = 0.45, color = '#c58cff', life = 900, n = 40, inward = true } = {}) {
-    if (this.speed === 0) return;
-    const ps = Array.from({ length: n }, () => ({ a: rand(0, TAU), r: rand(r * 0.4, r), s: rand(0.004, 0.01), z: rand(-30, 10) }));
-    this.add(life, (c, k, t, dt) => {
-      c.globalCompositeOperation = 'lighter';
-      c.fillStyle = color; c.shadowColor = color; c.shadowBlur = 10;
-      for (const p of ps) {
-        p.a += p.s * dt;
-        const rr = inward ? p.r * (1 - k * 0.85) : p.r * (0.3 + k);
-        const px = x + Math.cos(p.a) * rr, py = y + Math.sin(p.a) * rr * ry + p.z * k;
-        c.globalAlpha = Math.sin(k * Math.PI);
-        c.beginPath(); c.arc(px, py, 2.4, 0, TAU); c.fill();
-      }
-    });
-  }
-  // Runic circle lying flat on the board
-  runeCircle(x, y, { rx = 50, ry = 20, color = '#ff4458', life = 1200, spin = 1 } = {}) {
-    const glyphs = 'ᚠᚢᚦᚨᚱᚲᚷᚹᚺᚾᛁᛃᛇᛈᛉᛊᛏᛒᛖᛗ';
-    this.add(life, (c, k, t) => {
-      const a = k < 0.2 ? k / 0.2 : k > 0.75 ? (1 - k) / 0.25 : 1;
-      c.globalCompositeOperation = 'lighter';
-      c.globalAlpha = a; c.strokeStyle = color; c.fillStyle = color; c.shadowColor = color; c.shadowBlur = 14; c.lineWidth = 2.2;
-      c.beginPath(); c.ellipse(x, y, rx, ry, 0, 0, TAU); c.stroke();
-      c.beginPath(); c.ellipse(x, y, rx * 0.78, ry * 0.78, 0, 0, TAU); c.stroke();
-      c.font = `${Math.max(9, rx * 0.2)}px serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
-      for (let i = 0; i < 12; i++) {
-        const ang = (i / 12) * TAU + t * 0.0012 * spin;
-        c.fillText(glyphs[i % glyphs.length], x + Math.cos(ang) * rx * 0.89, y + Math.sin(ang) * ry * 0.89);
-      }
-      c.beginPath();
-      for (let i = 0; i <= 5; i++) {
-        const ang = (i * 2 / 5) * TAU - t * 0.0008 * spin - Math.PI / 2;
-        const px = x + Math.cos(ang) * rx * 0.74, py = y + Math.sin(ang) * ry * 0.74;
-        i ? c.lineTo(px, py) : c.moveTo(px, py);
-      }
-      c.stroke();
-    });
-  }
-  pillar(x, y, { w = 40, h = 260, color = '#ffe28a', life = 1000 } = {}) {
-    this.add(life, (c, k) => {
-      const a = Math.sin(k * Math.PI);
-      c.globalCompositeOperation = 'lighter';
-      const g = c.createLinearGradient(x - w, 0, x + w, 0);
-      g.addColorStop(0, 'transparent'); g.addColorStop(0.5, color); g.addColorStop(1, 'transparent');
-      c.globalAlpha = a; c.fillStyle = g; c.fillRect(x - w, y - h, w * 2, h);
-      c.fillStyle = '#ffffffaa'; c.fillRect(x - w * 0.12, y - h, w * 0.24, h);
-      c.beginPath(); c.ellipse(x, y, w * 1.2, w * 0.45, 0, 0, TAU); c.fill();
-    });
-    this.burst(x, y, { count: 40, colors: [color, '#fff'], speed: 2, life: 1100, size: 2.5, lift: -2.5, jitter: w * 0.6, jitterY: 4 });
-  }
-  dome(x, y, { rx = 80, ry = 70, color = '#8fd3ff', life = 1400 } = {}) {
-    this.add(life, (c, k) => {
-      const a = Math.sin(k * Math.PI);
-      const s = Math.min(1, k * 3);
-      c.globalCompositeOperation = 'lighter';
-      c.globalAlpha = a * 0.9;
-      const g = c.createRadialGradient(x, y, rx * 0.2 * s, x, y, rx * s);
-      g.addColorStop(0, 'transparent'); g.addColorStop(0.8, color + '33'); g.addColorStop(1, color + 'aa');
-      c.fillStyle = g; c.beginPath(); c.ellipse(x, y, rx * s, ry * s, 0, Math.PI, TAU); c.fill();
-      c.strokeStyle = color; c.lineWidth = 2; c.shadowColor = color; c.shadowBlur = 16;
-      c.beginPath(); c.ellipse(x, y, rx * s, ry * s, 0, Math.PI, TAU); c.stroke();
-      for (let i = 1; i < 4; i++) { c.beginPath(); c.ellipse(x, y, rx * s * (i / 4), ry * s, 0, Math.PI, TAU); c.globalAlpha = a * 0.35; c.stroke(); }
-      c.globalAlpha = a * 0.6; c.beginPath(); c.ellipse(x, y, rx * s, ry * s * 0.3, 0, 0, TAU); c.stroke();
-    });
-  }
-  rays(x, y, { color = '#ffe28a', life = 1500, r = 220, n = 14 } = {}) {
-    this.add(life, (c, k, t) => {
-      c.globalCompositeOperation = 'lighter';
-      c.globalAlpha = Math.sin(k * Math.PI) * 0.7;
-      for (let i = 0; i < n; i++) {
-        const a = (i / n) * TAU + t * 0.0004;
-        const g = c.createLinearGradient(x, y, x + Math.cos(a) * r, y + Math.sin(a) * r);
-        g.addColorStop(0, color); g.addColorStop(1, 'transparent');
-        c.fillStyle = g; c.beginPath(); c.moveTo(x, y);
-        c.lineTo(x + Math.cos(a - 0.08) * r, y + Math.sin(a - 0.08) * r);
-        c.lineTo(x + Math.cos(a + 0.08) * r, y + Math.sin(a + 0.08) * r); c.fill();
-      }
-    });
-  }
-  // Chain of glowing links through points
-  chain(points, { color = '#ffd66b', life = 1800 } = {}) {
-    this.add(life, (c, k, t) => {
-      const a = k < 0.15 ? k / 0.15 : k > 0.8 ? (1 - k) / 0.2 : 1;
-      c.globalCompositeOperation = 'lighter'; c.globalAlpha = a;
-      c.strokeStyle = color; c.lineWidth = 2.5; c.shadowColor = color; c.shadowBlur = 12;
-      for (let s = 0; s < points.length - 1; s++) {
-        const [p, q] = [points[s], points[s + 1]];
-        const len = Math.hypot(q.x - p.x, q.y - p.y), ang = Math.atan2(q.y - p.y, q.x - p.x);
-        const n = Math.max(2, Math.floor(len / 13));
-        const reveal = Math.min(1, k * 3);
-        for (let i = 0; i < n * reveal; i++) {
-          const f = (i + 0.5) / n;
-          c.save(); c.translate(p.x + (q.x - p.x) * f, p.y + (q.y - p.y) * f); c.rotate(ang);
-          c.beginPath(); c.ellipse(0, 0, 6.5, i % 2 ? 1.6 : 3.6, 0, 0, TAU); c.stroke(); c.restore();
-        }
-      }
-    });
-  }
-  // Translucent energy shield (hexagon lattice) shaped like a dome over (x, y) on the board.
-  // Builds up from the ground, a ripple runs over it, then cells flicker out one by one.
-  hexShield(x, y, { rx = 60, ry = 80, color = '#8fd3ff', life = 2200 } = {}) {
-    if (this.speed === 0) return;
-    const cell = Math.max(6, rx / 5.5);
-    const hw = cell * Math.sqrt(3) / 2;
-    const cells = [];
-    for (let row = 0; row * cell * 1.5 < ry + cell; row++) {
-      const cy = y - row * cell * 1.5;
-      for (let col = -Math.ceil(rx / hw); col <= Math.ceil(rx / hw); col++) {
-        const cx = x + col * hw * 2 + (row % 2 ? hw : 0);
-        // inside the dome (upper half-ellipse)?
-        const nx = (cx - x) / rx, ny = (y - cy) / ry;
-        const d = nx * nx + ny * ny;
-        if (d > 1 || cy > y + 1) continue;
-        cells.push({ cx, cy, d, h: (y - cy) / ry, seed: Math.random(), out: 0.72 + Math.random() * 0.25 });
-      }
-    }
-    const hexPath = (c, cx, cy, r) => {
-      c.beginPath();
-      for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + (i * Math.PI) / 3; const px = cx + Math.cos(a) * r, py = cy + Math.sin(a) * r * 0.9; i ? c.lineTo(px, py) : c.moveTo(px, py); }
-      c.closePath();
-    };
-    this.add(life, (c, k, t) => {
-      c.globalCompositeOperation = 'lighter';
-      const build = Math.min(1, k / 0.22);          // grows from the ground up
-      const ripple = (k - 0.3) / 0.25;              // a bright band sweeping upward
-      // dome body glow
-      const domeA = Math.min(1, k / 0.15) * (k > 0.75 ? Math.max(0, 1 - (k - 0.75) / 0.25) : 1);
-      const g = c.createRadialGradient(x, y - ry * 0.35, ry * 0.1, x, y - ry * 0.3, Math.max(rx, ry));
-      g.addColorStop(0, color + '10'); g.addColorStop(0.7, color + '30'); g.addColorStop(1, color + '88');
-      c.globalAlpha = domeA * 0.9; c.fillStyle = g;
-      c.beginPath(); c.ellipse(x, y, rx, ry, 0, Math.PI, Math.PI * 2); c.fill();
-      // hex cells
-      c.lineWidth = 1.7; c.strokeStyle = color; c.shadowColor = color; c.shadowBlur = 10;
-      for (const h of cells) {
-        if (h.h > build) continue;
-        if (k > h.out) continue;                     // flickered out
-        const fres = 0.25 + 0.75 * Math.pow(h.d, 1.5); // brighter near the rim
-        const shimmer = 0.6 + 0.4 * Math.sin(t * 0.006 + h.seed * 12);
-        const band = ripple > 0 && ripple < 1 ? Math.max(0, 1 - Math.abs(h.h - ripple) * 6) : 0;
-        const dying = k > h.out - 0.05 ? (Math.random() < 0.5 ? 0.2 : 1) : 1;
-        c.globalAlpha = Math.min(1, (0.35 + fres * shimmer * 0.75 + band) * dying);
-        hexPath(c, h.cx, h.cy, cell * 0.92);
-        c.fillStyle = color + (band > 0.3 ? '66' : '1c'); c.fill();
-        c.stroke();
-      }
-      // rim + ground ring
-      c.shadowBlur = 16; c.lineWidth = 2;
-      c.globalAlpha = domeA;
-      c.beginPath(); c.ellipse(x, y, rx, ry * build, 0, Math.PI, Math.PI * 2); c.stroke();
-      c.beginPath(); c.ellipse(x, y, rx, rx * 0.32, 0, 0, Math.PI * 2); c.stroke();
-    });
-    // sparkles when cells flicker out
-    setTimeout(() => this.burst(x, y - ry * 0.5, { count: 40, colors: [color, '#fff'], speed: 2.2, life: 900, size: 2, jitter: rx * 0.6, jitterY: ry * 0.4 }), this.scaleMs(life * 0.78));
-  }
-
-  // Rune circuit etched into the board: light runs through `pts` (board-plane points, in order),
-  // lighting a rune ring under each node and leaving a glowing double trace with glyphs, then fades.
-  // `cw`/`ch` = square size on screen. Resolves when the light reaches the last node.
-  runeCircuit(pts, { color = '#ffd66b', life = 3200, travel = 1300, cw = 50, ch = 40 } = {}) {
-    if (this.speed === 0 || pts.length < 2) return Promise.resolve();
-    const segs = [];
-    let total = 0;
-    for (let i = 0; i < pts.length - 1; i++) {
-      const a = pts[i], b = pts[i + 1], len = Math.hypot(b.x - a.x, b.y - a.y);
-      segs.push({ a, b, len, start: total }); total += len;
-    }
-    const nodeAt = pts.map((_, i) => (i === 0 ? 0 : segs[i - 1].start + segs[i - 1].len));
-    const glyphSet = 'ᚠᚢᚦᚨᚱᚲᚷᚹᚺᚾᛁᛃᛇᛈᛉᛊᛏᛒᛖᛗᛚᛜᛞᛟ';
-    const glyphs = [];
-    for (let d = cw * 0.55; d < total - cw * 0.4; d += cw * 0.5) glyphs.push({ d, ch: glyphSet[(Math.random() * glyphSet.length) | 0] });
-    const pointAt = (d) => {
-      const sgm = segs.find((s) => d <= s.start + s.len) || segs[segs.length - 1];
-      const f = Math.max(0, Math.min(1, (d - sgm.start) / sgm.len));
-      return { x: sgm.a.x + (sgm.b.x - sgm.a.x) * f, y: sgm.a.y + (sgm.b.y - sgm.a.y) * f, nx: -(sgm.b.y - sgm.a.y) / sgm.len, ny: (sgm.b.x - sgm.a.x) / sgm.len };
-    };
-    const travelK = travel / life;
-    this.add(life, (c, k, t) => {
-      const p = Math.min(1, k / travelK);
-      const reach = total * p;
-      const fade = k > 0.72 ? Math.max(0, 1 - (k - 0.72) / 0.28) : 1;
-      c.globalCompositeOperation = 'lighter';
-      c.lineCap = 'round'; c.lineJoin = 'round';
-      // double trace (two thin parallel lines) + soft glow under it
-      const off = ch * 0.07;
-      for (const [w, a, o] of [[cw * 0.32, 0.3, 0], [2.4, 1, off], [2.4, 1, -off]]) {
-        c.globalAlpha = a * fade; c.strokeStyle = color; c.lineWidth = w; c.shadowColor = color; c.shadowBlur = o ? 12 : 18;
-        c.beginPath();
-        let started = false;
-        for (const sgm of segs) {
-          if (sgm.start > reach) break;
-          const e = Math.min(1, (reach - sgm.start) / sgm.len);
-          const nx = -(sgm.b.y - sgm.a.y) / sgm.len * o, ny = (sgm.b.x - sgm.a.x) / sgm.len * o;
-          if (!started) { c.moveTo(sgm.a.x + nx, sgm.a.y + ny); started = true; }
-          c.lineTo(sgm.a.x + (sgm.b.x - sgm.a.x) * e + nx, sgm.a.y + (sgm.b.y - sgm.a.y) * e + ny);
-        }
-        c.stroke();
-      }
-      // small circuit ticks along the trace
-      c.globalAlpha = 0.7 * fade; c.lineWidth = 1.2; c.shadowBlur = 6;
-      for (let d = cw * 0.3; d < reach; d += cw * 0.25) {
-        const q = pointAt(d), L = off * (Math.floor(d / (cw * 0.25)) % 2 ? 2.6 : 1.6);
-        c.beginPath(); c.moveTo(q.x + q.nx * off, q.y + q.ny * off); c.lineTo(q.x + q.nx * L, q.y + q.ny * L); c.stroke();
-      }
-      // glyphs appear as the light passes
-      c.font = `bold ${Math.max(11, cw * 0.26)}px serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = color;
-      for (const gl of glyphs) {
-        if (gl.d > reach) continue;
-        const q = pointAt(gl.d);
-        c.globalAlpha = Math.min(1, (reach - gl.d) / (cw * 0.6)) * 0.85 * fade;
-        c.fillText(gl.ch, q.x - q.nx * off * 3.2, q.y - q.ny * off * 3.2);
-      }
-      // nodes: rune ring + diamond under each pawn once reached
-      pts.forEach((n, i) => {
-        if (nodeAt[i] > reach) return;
-        const age = (reach - nodeAt[i]) / (total * 0.25 + 1);
-        const pop = Math.min(1, age * 3);
-        const pulse = 1 + Math.sin(t * 0.008 + i) * 0.05;
-        c.globalAlpha = fade * pop; c.shadowBlur = 16; c.lineWidth = 3;
-        c.beginPath(); c.ellipse(n.x, n.y, cw * 0.46 * pulse, ch * 0.46 * pulse, 0, 0, Math.PI * 2); c.stroke();
-        const ng = c.createRadialGradient(n.x, n.y, 0, n.x, n.y, cw * 0.45); ng.addColorStop(0, color + '55'); ng.addColorStop(1, 'transparent');
-        c.fillStyle = ng; c.beginPath(); c.ellipse(n.x, n.y, cw * 0.45, ch * 0.45, 0, 0, Math.PI * 2); c.fill();
-        c.lineWidth = 1; c.setLineDash([3, 4]); c.lineDashOffset = -t * 0.03;
-        c.beginPath(); c.ellipse(n.x, n.y, cw * 0.33, ch * 0.33, 0, 0, Math.PI * 2); c.stroke(); c.setLineDash([]);
-        c.globalAlpha = fade * pop * 0.9; c.fillStyle = '#fff';
-        c.beginPath(); c.moveTo(n.x, n.y - ch * 0.12); c.lineTo(n.x + cw * 0.08, n.y); c.lineTo(n.x, n.y + ch * 0.12); c.lineTo(n.x - cw * 0.08, n.y); c.closePath(); c.fill();
-      });
-      // the running spark
-      if (p < 1) {
-        const q = pointAt(reach);
-        const g = c.createRadialGradient(q.x, q.y, 0, q.x, q.y, cw * 0.35);
-        g.addColorStop(0, '#fff'); g.addColorStop(0.35, color); g.addColorStop(1, 'transparent');
-        c.globalAlpha = 1; c.shadowBlur = 0; c.fillStyle = g;
-        c.beginPath(); c.arc(q.x, q.y, cw * 0.35, 0, Math.PI * 2); c.fill();
-        this.burst(q.x, q.y, { count: 2, colors: [color, '#fff'], speed: 1.4, life: 500, size: 1.8, flatten: 0.5 });
-      }
-    });
-    return this.wait(travel);
-  }
-
-  // A planted banner/flag
-  flag(x, y, { color = '#ffd66b', life = 2200, h = 70 } = {}) {
-    this.add(life, (c, k, t) => {
-      const a = k < 0.1 ? k / 0.1 : k > 0.85 ? (1 - k) / 0.15 : 1;
-      const rise = Math.min(1, k * 5);
-      c.globalAlpha = a;
-      c.strokeStyle = '#3b2e1f'; c.lineWidth = 3;
-      c.beginPath(); c.moveTo(x, y); c.lineTo(x, y - h * rise); c.stroke();
-      c.fillStyle = color; c.shadowColor = color; c.shadowBlur = 12;
-      c.beginPath(); const top = y - h * rise;
-      c.moveTo(x, top);
-      for (let i = 0; i <= 10; i++) c.lineTo(x + i * 3.6, top + Math.sin(t * 0.008 + i * 0.6) * 3);
-      c.lineTo(x + 36, top + 20);
-      for (let i = 10; i >= 0; i--) c.lineTo(x + i * 3.6, top + 20 + Math.sin(t * 0.008 + i * 0.6) * 3);
-      c.fill();
-    });
-  }
-  // Power charge-up: energy streaks are sucked into (x,y), an orb grows and pulses, rays spin, a rune ring
-  // glows on the floor at (fx,fy). Resolves when fully charged.
-  charge(x, y, { color = '#ffd36b', dur = 750, r = 60, floorX = x, floorY = null, ringRx = r, ringRy = r * 0.4 } = {}) {
-    if (this.speed === 0) return Promise.resolve();
-    this.add(dur + 120, (c, k, t) => {
-      const kk = Math.min(1, k * 1.15);
-      // converging streaks
-      for (let i = 0; i < 3; i++) {
-        const a = Math.random() * TAU, d = r * rand(1.4, 2.4), sp = rand(3, 6) * (r / 50);
-        const life = (d / sp) * 16.7;
-        this.parts.push({ x: x + Math.cos(a) * d, y: y + Math.sin(a) * d * 0.8, vx: -Math.cos(a) * sp, vy: -Math.sin(a) * sp * 0.8, g: 0, drag: 1, t: 0, life, size: rand(1.2, 2.4), color: Math.random() < 0.3 ? '#fff' : color, kind: 'streak', add: true, alpha: 1, rot: 0, vr: 0, shrink: false });
-      }
-      c.globalCompositeOperation = 'lighter';
-      // floor rune ring
-      if (floorY != null) {
-        c.globalAlpha = kk * 0.9; c.strokeStyle = color; c.lineWidth = 2; c.shadowColor = color; c.shadowBlur = 14;
-        c.beginPath(); c.ellipse(floorX, floorY, ringRx * (0.6 + kk * 0.5), ringRy * (0.6 + kk * 0.5), 0, 0, TAU); c.stroke();
-        c.setLineDash([4, 6]); c.lineDashOffset = -t * 0.05;
-        c.beginPath(); c.ellipse(floorX, floorY, ringRx * (0.4 + kk * 0.4), ringRy * (0.4 + kk * 0.4), 0, 0, TAU); c.stroke();
-        c.setLineDash([]);
-      }
-      // spinning rays
-      c.globalAlpha = kk * 0.55;
-      for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * TAU + t * 0.004;
-        const len = r * (0.6 + kk * 1.1);
-        const g = c.createLinearGradient(x, y, x + Math.cos(a) * len, y + Math.sin(a) * len);
-        g.addColorStop(0, color); g.addColorStop(1, 'transparent');
-        c.fillStyle = g; c.beginPath(); c.moveTo(x, y);
-        c.lineTo(x + Math.cos(a - 0.06) * len, y + Math.sin(a - 0.06) * len);
-        c.lineTo(x + Math.cos(a + 0.06) * len, y + Math.sin(a + 0.06) * len); c.fill();
-      }
-      // pulsing orb
-      const pr = r * (0.12 + kk * 0.42) * (1 + Math.sin(t * 0.035) * 0.12 * kk);
-      c.globalAlpha = 1;
-      const g = c.createRadialGradient(x, y, 0, x, y, pr * 2.2);
-      g.addColorStop(0, '#ffffff'); g.addColorStop(0.3, color); g.addColorStop(1, 'transparent');
-      c.fillStyle = g; c.beginPath(); c.arc(x, y, pr * 2.2, 0, TAU); c.fill();
-      // crackling arcs around the orb near full charge
-      if (kk > 0.5 && Math.random() < 0.5) {
-        c.strokeStyle = '#fff'; c.lineWidth = 1.2; c.shadowColor = color; c.shadowBlur = 10;
-        const a0 = Math.random() * TAU; c.beginPath();
-        for (let i = 0; i <= 5; i++) { const a = a0 + i * 0.25, rr = pr * rand(1.1, 1.7); i ? c.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr) : c.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
-        c.stroke();
-      }
-    });
-    return this.wait(dur);
-  }
-
-  // Glowing cracks spreading over a sprite from the impact point.
-  cracks(x, y, { len = 40, color = '#fff', life = 380, n = 7 } = {}) {
-    if (this.speed === 0) return;
-    const branches = Array.from({ length: n }, () => {
-      const pts = [[0, 0]]; let a = rand(0, TAU), px = 0, py = 0;
-      const segs = 5 + ((Math.random() * 4) | 0);
-      for (let i = 0; i < segs; i++) { a += rand(-0.7, 0.7); const l = (len / segs) * rand(0.7, 1.3); px += Math.cos(a) * l; py += Math.sin(a) * l; pts.push([px, py]); }
-      return pts;
-    });
-    this.add(life, (c, k) => {
-      const grow = Math.min(1, k * 2.2);
-      c.globalCompositeOperation = 'lighter';
-      c.strokeStyle = color; c.shadowColor = color; c.shadowBlur = 8; c.lineWidth = 1.6; c.lineCap = 'round';
-      c.globalAlpha = 1 - Math.max(0, k - 0.7) / 0.3;
-      for (const b of branches) {
-        const m = Math.max(2, Math.ceil(b.length * grow));
-        c.beginPath(); c.moveTo(x, y);
-        for (let i = 1; i < m; i++) c.lineTo(x + b[i][0], y + b[i][1]);
-        c.stroke();
-      }
-    });
-  }
-
-  // Darken the edges of the whole window (cinematic vignette) — a fixed overlay so it fades smoothly
-  // everywhere instead of stopping at the edge of the FX canvas.
-  vignette({ life = 3000, strength = 0.7 } = {}) {
-    if (this.speed === 0) return;
-    const el = document.createElement('div');
-    Object.assign(el.style, {
-      position: 'fixed', inset: '0', pointerEvents: 'none', zIndex: '40',
-      background: `radial-gradient(ellipse at 38% 50%, rgba(0,0,0,0) 30%, rgba(5,0,12,${strength}) 100%)`, opacity: '0',
-    });
-    document.body.appendChild(el);
-    const dur = this.scaleMs(life);
-    el.animate([{ opacity: 0 }, { opacity: 1, offset: 0.12 }, { opacity: 1, offset: 0.8 }, { opacity: 0 }], { duration: dur, fill: 'forwards' });
-    setTimeout(() => el.remove(), dur + 50);
-  }
-
-  // A glowing halo ring hovering (and gently bobbing) at x,y.
-  halo(x, y, { rx = 20, color = '#ffe28a', life = 2400 } = {}) {
-    this.add(life, (c, k, t) => {
-      const a = k < 0.15 ? k / 0.15 : k > 0.75 ? (1 - k) / 0.25 : 1;
-      const yy = y + Math.sin(t * 0.005) * rx * 0.12;
-      c.globalCompositeOperation = 'lighter'; c.globalAlpha = a;
-      c.strokeStyle = color; c.shadowColor = color; c.shadowBlur = 18;
-      c.lineWidth = 3.2; c.beginPath(); c.ellipse(x, yy, rx, rx * 0.32, 0, 0, TAU); c.stroke();
-      c.strokeStyle = '#fff'; c.lineWidth = 1.2; c.beginPath(); c.ellipse(x, yy, rx, rx * 0.32, 0, 0, TAU); c.stroke();
-    });
-  }
-
-  // A golden crown knocked off the king: flies up, spins, bounces on the board and rests.
-  crown(x, y, { color = '#ffd66b', floor = y + 60, size = 14, life = 3600 } = {}) {
-    if (this.speed === 0) return;
-    const b = { x, y, vx: rand(-2.2, 2.2) * (size / 14), vy: -9 * (size / 14), rot: 0, vr: rand(-0.25, 0.25), bounces: 0 };
-    const g = 0.42 * (size / 14);
-    this.add(life, (c, k, t, dt) => {
-      const s = dt / 16.7;
-      if (b.bounces < 4) {
-        b.vy += g * s; b.x += b.vx * s; b.y += b.vy * s; b.rot += b.vr * s;
-        if (b.y > floor) { b.y = floor; b.vy *= -0.4; b.vx *= 0.6; b.vr *= 0.5; b.bounces++; if (b.bounces === 1) this.sparks(b.x, b.y, ['#fff', color], 14); }
-      }
-      const a = k > 0.85 ? (1 - k) / 0.15 : 1;
-      c.save(); c.globalAlpha = a; c.translate(b.x, b.y); c.rotate(b.rot);
-      const w = size, h = size * 0.75;
-      const gr = c.createLinearGradient(-w, -h, w, h);
-      gr.addColorStop(0, '#fff4c4'); gr.addColorStop(0.5, color); gr.addColorStop(1, '#8a5c0c');
-      c.fillStyle = gr; c.strokeStyle = '#3b2a08'; c.lineWidth = 1.2; c.shadowColor = color; c.shadowBlur = 12;
-      c.beginPath();
-      c.moveTo(-w, h * 0.5); c.lineTo(-w, -h * 0.4); c.lineTo(-w * 0.5, h * 0.05); c.lineTo(0, -h * 0.9);
-      c.lineTo(w * 0.5, h * 0.05); c.lineTo(w, -h * 0.4); c.lineTo(w, h * 0.5); c.closePath();
-      c.fill(); c.stroke();
-      c.shadowBlur = 0; c.fillStyle = '#ff3a4e';
-      c.beginPath(); c.arc(0, h * 0.18, size * 0.13, 0, TAU); c.fill();
-      c.restore();
-    });
-  }
-
-  // Firework: a rocket climbs to (x, y) then bursts into falling sparks.
-  firework(x, y, { colors = ['#ffd66b', '#fff'], from = null, rise = 520 } = {}) {
-    if (this.speed === 0) return;
-    const sy = from ?? y + 240;
-    this.add(rise, (c, k) => {
-      const yy = sy + (y - sy) * (1 - Math.pow(1 - k, 2));
-      this.burst(x, yy, { count: 2, colors: ['#ffe9b0', '#fff'], speed: 0.6, life: 380, size: 1.6 });
-    });
-    setTimeout(() => {
-      this.glow(x, y, { r: 60, color: colors[0], life: 380 });
-      this.burst(x, y, { count: 80, colors, speed: 6.5, minSpeed: 2, life: 1500, size: 2.2, kind: 'streak', gravity: 0.06, drag: 0.975 });
-      this.burst(x, y, { count: 30, colors: ['#fff'], speed: 3, life: 900, size: 1.6, gravity: 0.04 });
-    }, this.scaleMs(rise));
-  }
-
-  // Floating text in world space
-  text(x, y, str, { color = '#fff', life = 1200, size = 18 } = {}) {
-    this.add(life, (c, k) => {
-      c.globalAlpha = k < 0.15 ? k / 0.15 : 1 - Math.max(0, k - 0.6) / 0.4;
-      c.font = `700 ${size}px Cinzel, serif`; c.textAlign = 'center';
-      c.fillStyle = color; c.shadowColor = '#000'; c.shadowBlur = 6;
-      c.fillText(str, x, y - k * 30);
-    });
-  }
-}
-
-return { get FX() { return FX; } };
 });
 __def("vendor/chess.js", function () { 'use strict';
 /**

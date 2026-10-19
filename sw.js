@@ -1,5 +1,5 @@
 // Wizard Chess offline cache. VERSION changes with every build, so phones pick up new versions.
-const VERSION = 'wc-0a290fd25e';
+const VERSION = 'wc-bfa819da3e';
 const FILES = ["./", "index.html", "manifest.webmanifest", "icons/apple-touch-icon.png", "icons/icon-192.png", "icons/icon-512.png"];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
