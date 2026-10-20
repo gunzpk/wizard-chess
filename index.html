@@ -190,14 +190,14 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
 .sq::after { content: ''; position: absolute; inset: 0; pointer-events: none; }
 .sq.last::after { background: rgba(255, 214, 102, 0.38); }
 .sq.sel::after { background: rgba(168, 121, 255, 0.5); box-shadow: inset 0 0 0 3px #d6b6ff; }
-.sq.check::after { background: radial-gradient(circle, #ff3048cc 0%, #ff304866 45%, transparent 75%); animation: pulse 1s infinite alternate; }
+.sq.check::after { background: radial-gradient(circle, #ff3048cc 0%, #ff304866 45%, transparent 75%); }
 .sq.hint-from::after { background: rgba(95, 227, 154, 0.25); }
 .sq.fort::before { content: ''; position: absolute; inset: 6%; border-radius: 4px; pointer-events: none;
   background: repeating-linear-gradient(0deg, #00000022 0 22%, transparent 22% 25%), linear-gradient(135deg, #9a8f7a88, #5d564a88);
   box-shadow: inset 0 0 0 2px #e8c06666; }
 .sq .dot { position: absolute; left: 50%; top: 50%; width: 26%; height: 26%; transform: translate(-50%,-50%); border-radius: 50%; background: rgba(40, 20, 70, 0.45); box-shadow: 0 0 8px #a879ff; pointer-events: none; }
 .sq .cap-ring { position: absolute; inset: 4%; border-radius: 50%; border: 5px solid rgba(255, 80, 110, 0.6); pointer-events: none; }
-.sq .ring { position: absolute; inset: 7%; border-radius: 50%; border: 3px solid var(--green); box-shadow: 0 0 10px var(--green), inset 0 0 8px var(--green); pointer-events: none; animation: pulse 1.2s infinite alternate; }
+.sq .ring { position: absolute; inset: 7%; border-radius: 50%; border: 3px solid var(--green); box-shadow: 0 0 10px var(--green), inset 0 0 8px var(--green); pointer-events: none; }
 .sq .ring.dashed { border-style: dashed; opacity: .7; box-shadow: none; animation: none; }
 @keyframes pulse { from { opacity: .55; } to { opacity: 1; } }
 .arrows { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
@@ -208,28 +208,23 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
 .piece svg .hit { pointer-events: all; cursor: grab; }
 .piece.w svg { filter: var(--rim-w); }
 .piece.b svg { filter: var(--rim-b); }
-/* ---------- piece poses (idle / walk / defend / kneel) ----------
+/* ---------- piece poses (stand / walk / defend / kneel) — no idle motion: pieces stand perfectly still ----------
    Coordinates are in the piece SVG's own 100x140 units (transform-box: view-box).
    Motion is deliberately "sprite-like": poses snap frame by frame (steps) at ~12 fps instead of tweening.
    --fxs (effect speed) scales every duration. */
-.piece svg { animation: breathe calc(1.6s / var(--fxs, 1)) steps(1, end) infinite; animation-delay: var(--bd, 0s); transform-origin: 50% 100%; }
-/* pawns are the bulk of the army: a kneeling pawn holds still (16 idle-animated sprites made boards lag) */
-.piece[data-type="p"] svg { animation: none; }
-@keyframes breathe {           /* 4-frame idle */
-  0% { transform: scale(1, 1); } 25% { transform: scale(1, 1.012); }
-  50% { transform: scale(1.006, 1.024); } 75% { transform: scale(1, 1.012); } }
+.piece svg { transform-origin: 50% 100%; }
 .piece svg g { transform-box: view-box; }
 .piece .p-upper, .piece .p-arm, .piece .sword, .piece .p-shield, .piece .p-grip, .piece .blade, .piece .staff, .piece .orb {
-  transition: transform calc(.42s / var(--fxs, 1)) steps(5, jump-end), opacity calc(.42s / var(--fxs, 1)) steps(2, jump-end);
+  transition: transform calc(.25s / var(--fxs, 1)) steps(3, jump-end), opacity calc(.25s / var(--fxs, 1)) steps(2, jump-end);
 }
-.piece .p-legs-stand, .piece .p-legs-kneel { transition: opacity calc(.42s / var(--fxs, 1)) steps(2, jump-end); }
+.piece .p-legs-stand, .piece .p-legs-kneel { transition: opacity calc(.25s / var(--fxs, 1)) steps(2, jump-end); }
 .piece .p-legs-kneel, .piece .p-grip { opacity: 0; }
-/* pawn kneeling (rest pose): one knee down, sword planted point-first, shield resting on the ground */
+/* pawn kneeling (rest pose): one knee down, sword held upright in the hand (never flipped — flipping it
+   between kneel and stand looked like the pawn twirling its sword every time it set off), shield on the ground */
 .piece[data-pose="kneel"] .p-legs-stand { opacity: 0; }
-.piece[data-pose="kneel"] .p-legs-kneel, .piece[data-pose="kneel"] .p-grip { opacity: 1; }
+.piece[data-pose="kneel"] .p-legs-kneel { opacity: 1; }
 .piece[data-pose="kneel"] .p-upper { transform-origin: 50px 95px; transform: translate(0px, 8px) rotate(6deg); }
-.piece[data-pose="kneel"] .p-arm { opacity: 0; }
-.piece[data-pose="kneel"] .sword { transform-origin: 74.5px 78px; transform: translate(-16px, 17px) rotate(180deg) scale(.5); }
+.piece[data-pose="kneel"] .p-arm, .piece[data-pose="kneel"] .sword { transform: translate(-2px, 6px); }
 .piece[data-pose="kneel"] .p-shield { transform-origin: 30px 112px; transform: translate(-7px, 5px) rotate(-16deg) scale(.92); }
 .piece[data-pose="kneel"].bowed .p-upper { transform: translate(0px, 11px) rotate(16deg); }
 /* defending: shield / weapon up */
@@ -250,8 +245,8 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
 @keyframes step-b { 0% { transform: rotate(20deg); } 16.67% { transform: rotate(9deg); } 33.33% { transform: rotate(-6deg); }
   50% { transform: rotate(-22deg); } 66.67% { transform: rotate(-11deg); } 83.33% { transform: rotate(4deg); } }
 @keyframes step-bob { 0%, 50% { transform: translateY(0); } 16.67%, 66.67% { transform: translateY(-2px); } 33.33%, 83.33% { transform: translateY(-1px); } }
-@keyframes step-arm { 0% { transform: rotate(8deg); } 16.67% { transform: rotate(4deg); } 33.33% { transform: rotate(-2deg); }
-  50% { transform: rotate(-8deg); } 66.67% { transform: rotate(-4deg); } 83.33% { transform: rotate(2deg); } }
+@keyframes step-arm { 0% { transform: rotate(3deg); } 16.67% { transform: rotate(1.5deg); } 33.33% { transform: rotate(-1deg); }
+  50% { transform: rotate(-3deg); } 66.67% { transform: rotate(-1.5deg); } 83.33% { transform: rotate(1deg); } }
 @keyframes step-shield { 0%, 50% { transform: translateY(0); } 16.67%, 66.67% { transform: translateY(-2px); } 33.33%, 83.33% { transform: translateY(-1px); } }
 .piece.dragging { z-index: 9999 !important; opacity: .95; }
 .piece.dragging svg { filter: drop-shadow(0 0 10px #ffe7a0) drop-shadow(0 18px 10px #000a); }
@@ -338,7 +333,12 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
 @keyframes caIn { from { opacity: 0; transform: translate(-50%, 16px); } }
 .coach-alert .ca-head { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 16px; color: var(--cc); margin-bottom: 4px; }
 .coach-alert p { margin: 4px 0; }
-.coach-alert .ca-best { color: #b5f5cf; }
+.coach-alert .ca-scroll { max-height: min(46vh, 340px); overflow-y: auto; overscroll-behavior: contain; }
+.coach-alert .ca-sec { margin-top: 6px; }
+.coach-alert .ca-sec h4 { margin: 8px 0 2px; font-size: 13.5px; color: #ffb4b4; }
+.coach-alert .ca-best h4 { color: #8ff0b6; }
+.coach-alert .ca-best { color: #d8f7e4; }
+.coach-alert .ca-sec b { color: #fff; }
 .coach-alert .muted { color: var(--muted); font-style: italic; }
 .coach-alert .ca-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 .coach-alert .ca-btns button { flex: 1; padding: 9px 8px; border-radius: 10px; border: 1px solid var(--panel-border); background: #ffffff10; font-weight: 700; }
@@ -355,7 +355,7 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
 .coach-msgs .cm.muted { color: var(--muted); font-style: italic; }
 .coach-msgs .cm ul { margin: 4px 0 0; padding-left: 16px; }
 .coach-msgs .cm li { margin: 2px 0; }
-.sq.coach-mark::before { content: ''; position: absolute; inset: 5%; border-radius: 50%; border: 3px solid #ffd36b; box-shadow: 0 0 12px #ffd36b, inset 0 0 8px #ffd36b; pointer-events: none; animation: pulse .9s infinite alternate; z-index: 1; }
+.sq.coach-mark::before { content: ''; position: absolute; inset: 5%; border-radius: 50%; border: 3px solid #ffd36b; box-shadow: 0 0 12px #ffd36b, inset 0 0 8px #ffd36b; pointer-events: none; z-index: 1; }
 .big-btn.alt { margin-top: 10px; background: linear-gradient(180deg, #3a2f5e, #241c40); color: var(--gold2); border-color: #e8c06688; box-shadow: none; }
 #stage-drill { width: min(640px, calc(100vw - 32px), calc((100vh - 150px) * 1.05)); }
 @media (min-width: 900px) { #stage-drill { width: min(640px, calc(100vw - 360px), calc((100vh - 150px) * 1.05)); } }
@@ -466,10 +466,8 @@ body { -webkit-tap-highlight-color: transparent; touch-action: manipulation; } /
 }
 
 /* ---------- smooth mode (fewer effects; default on phones) ---------- */
-html.lite .piece svg { animation: none; }                       /* no idle breathing */
 html.lite .piece.walking .p-leg-f, html.lite .piece.walking .p-leg-b, html.lite .piece.walking .p-upper,
 html.lite .piece.walking .p-arm, html.lite .piece.walking .sword, html.lite .piece.walking .p-shield { animation: none; }
-html.lite .sq.check::after, html.lite .sq .ring, html.lite .sq.coach-mark::before { animation: none; }
 
 /* ---------- full-screen play: only the board and the two player tags ---------- */
 /* "Full screen" lives in the top bar while a game is on screen; the ✕ on the board only exists in focus mode */
@@ -2296,7 +2294,7 @@ const LEADUP_WHY = {
   e3: F('e3 — supports d4 and opens the d3 diagonal.', 'e3 — คุ้ม d4 และเปิดแนว d3 ให้บิชอป'),
   Bd3: F('Bd3 — the attacking bishop, out before …Bf5.', 'Bd3 — บิชอปตัวบุก ออกก่อน …Bf5'),
   Nd2: F('Nd2 — guards e4.', 'Nd2 — คุม e4'),
-  c3: F('c3 — supports d4 and keeps c2 for the bishop.', 'c3 — หนุน d4 และเผื่อช่อง c2 ให้บิชอป'),
+  c3: F('c3 — supports d4 (the answer to …c5 at once) and keeps c2 for the bishop.', 'c3 — หนุน d4 (ตอบ …c5 ทันที) และเผื่อช่อง c2 ให้บิชอป'),
   f4: F('f4 — closes the wall and controls e5.', 'f4 — ปิดกำแพงและคุมช่อง e5'),
   Ngf3: F('Ngf3 — the knight heads for e5.', 'Ngf3 — ม้ามุ่งหน้าไป e5'),
   Nf3: F('Nf3 — develop the knight.', 'Nf3 — พัฒนาม้า'),
@@ -2405,12 +2403,13 @@ const DRILLS = [
     hint: F('Push a pawn on the kingside early.', 'ดันเบี้ยฝั่งคิงเร็ว ๆ'),
   },
   {
-    id: 'knights-c3', chapter: 'order', kind: 'position', setup: ['d4', 'd5', 'e3', 'Nf6', 'Bd3', 'c5', 'f4', 'Nc6'], answer: ['c2c3'], alsoOk: ['g1f3'],
-    title: F('Both knights out — c3 or Nd2?', 'ม้าดำออกครบ — c3 หรือ Nd2?'),
-    teach: F('A typical game: Black hits d4 with …c5 and brings both knights out. Can Black\'s light bishop still reach f5? If yes, …Nb4 + …Bf5 would gang up on c2 — and …c5 is pressing d4 too.', 'เกมทั่วไป: ดำตี d4 ด้วย …c5 และออกม้าครบสองตัว บิชอปช่องขาวดำยังไป f5 ได้ไหม? ถ้าได้ …Nb4 + …Bf5 จะรุมช่อง c2 แถม …c5 ก็กดดัน d4 อยู่'),
-    why: F('c3! One move, two jobs: it supports d4 against …c5 and takes b4 away from the knight while …Bf5 is still possible. The engine rates it joint-best.', 'c3! ตาเดียวทำสองหน้าที่: หนุน d4 จาก …c5 และปิดช่อง b4 ไม่ให้ม้าใช้ ขณะที่ …Bf5 ยังทำได้ เอนจินให้เป็นตาที่ดีที่สุดร่วม'),
-    wrong: F('…Nb4 followed by …Bf5 would double-attack c2.', '…Nb4 ตามด้วย …Bf5 จะรุมตี c2'),
-    hint: F('Take the b4 square away.', 'ปิดช่อง b4'),
+    id: 'knights-c3', chapter: 'order', kind: 'position', setup: ['d4', 'd5', 'e3', 'Nf6', 'Bd3', 'c5', 'c3', 'Nc6'], answer: ['f2f4'],
+    title: F('…c5, then …Nc6 — what now?', '…c5 แล้ว …Nc6 — เดินอะไรต่อ?'),
+    teach: F('Black hit d4 with …c5 and you answered c3 straight away (Coach Mark: meet …c5 with c3 at once). Now the second black knight comes to c6. What is it preparing?', 'ดำตี d4 ด้วย …c5 และคุณตอบ c3 ทันที (Coach Mark: เจอ …c5 ให้ตอบ c3 เลย) ตอนนี้ม้าดำตัวที่สองมาที่ c6 — มันเตรียมทำอะไร?'),
+    why: F('f4! A knight on c6 supports …e5 — "any time you see a knight on c6, meet it with f4". c3 already took b4 away from that knight, so …Nb4 is no longer a worry either.', 'f4! ม้าที่ c6 หนุน …e5 — "เห็นม้าที่ c6 เมื่อไหร่ ตอบ f4" ส่วน c3 ที่เดินไปแล้วก็ปิดช่อง b4 ไว้ ม้าจึงมา …Nb4 ไม่ได้ด้วย'),
+    fair: true,
+    wrong: F('…e5 next, with the c6 knight recapturing, breaks the wall before it is built.', '…e5 ตาหน้า โดยมีม้า c6 กินคืน จะทลายกำแพงก่อนสร้างเสร็จ'),
+    hint: F('Which black move does the c6 knight support?', 'ม้า c6 หนุนตาเดินไหนของดำ?'),
   },
   {
     id: 'knights-nd2', chapter: 'order', kind: 'position', setup: ['d4', 'd5', 'e3', 'Nf6', 'Bd3', 'e6', 'f4', 'Nc6'], answer: ['b1d2'],
@@ -2487,7 +2486,23 @@ __def("js/openings/openingSystem.js", function () { 'use strict';
 // Generic, data-driven opening tracker: setup guide, milestones (your achievements), threats
 // (opponent ideas) and middlegame plans that branch on where the opponent's king goes.
 const { STONEWALL } = __req("js/openings/stonewall.js");
-const { L } = __req("js/i18n.js");
+const { L, t } = __req("js/i18n.js");
+const VAL = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+// A capture that simply wins material: the piece can't be taken back, or it is worth more than the capturer.
+// The setup can wait — the guide must never walk past a free piece.
+function freeCapture(chess) {
+  let best = null;
+  for (const m of chess.moves({ verbose: true })) {
+    if (!m.captured || VAL[m.captured] < 3) continue;
+    chess.move(m);
+    const recapture = chess.moves({ verbose: true }).some((r) => r.to === m.to);
+    chess.undo();
+    const gain = recapture ? VAL[m.captured] - VAL[m.piece] : VAL[m.captured];
+    if (gain >= 2 && (!best || gain > best.gain)) best = { m, gain };
+  }
+  return best;
+}
+
 const OPENINGS = { stonewall: STONEWALL };
 
 function posMap(chess) {
@@ -2602,10 +2617,20 @@ class OpeningSystem {
     const planSteps = planDef ? this.pending(planDef.steps, P, ctx) : [];
 
     let step = null, arrows = [];
-    // an urgent lesson rule (e.g. "…e5 is coming — f4 now") overrides the normal order when playable
     const pri = lesson?.priority;
     const priPlayable = pri && myTurn ? pri.moves.filter((m) => legal.has(m)) : [];
-    if (priPlayable.length) { step = pri; arrows = priPlayable.map((m) => ({ from: m.slice(0, 2), to: m.slice(2, 4), color: 'gold' })); }
+    // a lesson that already recaptures (e.g. fxe5, "toward the centre") beats the generic free-piece check
+    const priTakes = priPlayable.some((u) => chess.get(u.slice(2, 4)));
+    const free = myTurn && !priTakes ? freeCapture(chess) : null;
+    if (free) {
+      const { m } = free;
+      const nm = t('pieceName_' + m.captured);
+      step = { id: 'free', moves: [m.from + m.to], lesson: true, text: { en: `Free material: ${m.san} wins the ${nm} on ${m.to} — take it first, the setup can wait.`, th: `ได้หมากฟรี: ${m.san} กิน${nm}ที่ ${m.to} — กินก่อน แผนรอได้` } };
+      arrows = [{ from: m.from, to: m.to, color: 'gold' }];
+    }
+    // an urgent lesson rule (e.g. "…e5 is coming — f4 now") overrides the normal order when playable
+    if (step) { /* free material beats everything */ }
+    else if (priPlayable.length) { step = pri; arrows = priPlayable.map((m) => ({ from: m.slice(0, 2), to: m.slice(2, 4), color: 'gold' })); }
     else for (const s of [...setup, ...planSteps]) {
       const playable = s.moves.filter((m) => legal.has(m));
       if (!myTurn) { step = s; break; }
@@ -2624,14 +2649,14 @@ class OpeningSystem {
       title: L(this.side.title),
       step,
       stepText: step ? L(step.text) : null,
-      inSetup: !!step && (setup.includes(step) || step === pri),
+      inSetup: !!step && (setup.includes(step) || step === pri || step.id === 'free'),
       plan,
       planTitle: planDef ? L(planDef.title) : null,
       planSummary: planDef ? L(planDef.summary) : null,
       planFacts,
       planChecklist,
       lessonNotes: (lesson?.notes || []).map((n) => ({ kind: n.kind, text: L(n.text) })),
-      lessonUrgent: !!priPlayable.length,
+      lessonUrgent: !!free || !!priPlayable.length,
       source: this.side.source ? L(this.side.source) : null,
       kid: lesson?.setup === 'kid',
       arrows: myTurn ? arrows : [],
@@ -3124,6 +3149,13 @@ function lessons(P, ctx) {
   const kid = isKID(P);
   const set = (id, moves, text) => { if (!priority) priority = { id, moves, text, lesson: true }; };
 
+  // ---- P2: Black just captured on d4 / e5 / f4 — recapture "right to left" (toward the centre) ----
+  if (last.color === 'b' && last.captured) {
+    if (last.to === 'd4' && P.e3 === 'wP') set('exd4', ['e3d4'], F('Recapture exd4 — always take back toward the centre ("right to left"): the e-pawn keeps your pawns pointing at the kingside.', 'กินคืน exd4 — กินคืนเข้าหากลางเสมอ ("ขวาไปซ้าย") เบี้ยจะยังชี้ไปฝั่งคิง'));
+    if (last.to === 'e5' && P.f4 === 'wP') set('fxe5', ['f4e5'], F('Recapture fxe5! — toward the centre: the f6 knight gets kicked and the f-file opens.', 'กินคืน fxe5! — เข้าหากลาง ม้า f6 จะถูกไล่และแนว f เปิด'));
+    if (last.to === 'f4' && P.e3 === 'wP') set('exf4', ['e3f4'], F('Recapture exf4 — the e3 pawn is your reserve for exactly this.', 'กินคืน exf4 — เบี้ย e3 มีไว้กินคืนตรงนี้'));
+  }
+
   // ---- P3: attack patterns once the pawn sits on e5 (after …Nxe5 fxe5) ----
   const blackShort = P.g8 === 'bK' || P.h8 === 'bK';
   if (P.e5 === 'wP' && blackShort) {
@@ -3149,9 +3181,19 @@ function lessons(P, ctx) {
     else if (!kid) set('f4now', ['f2f4'], F(`Black threatens …e5 with a recapture (${sup.map((s) => label(P, s)).join(', ')}). Play f4 NOW — stopping …e5 is priority number one.`, `ดำขู่ …e5 โดยมีหมากกินคืน (${sup.map((s) => label(P, s)).join(', ')}) — เดิน f4 ทันที! การกัน …e5 คือเรื่องสำคัญที่สุด`));
   }
 
+  // ---- P2: …c5 is met by c3 straight away (if …cxd4, exd4) ----
+  if (P.c5 === 'bP' && P.d4 === 'wP' && P.c2 === 'wP' && !P.c3 && !kid) {
+    set('c3vsc5', ['c2c3'], F('…c5 hits d4: answer c3 right away — if …cxd4, recapture exd4.', '…c5 ตี d4: ตอบ c3 ทันที — ถ้า …cxd4 ให้กินคืน exd4'));
+  }
+
   // ---- P1/P2: …b6 / …Bb7 before f4 ----
   if (P.f2 === 'wP' && P.g1 === 'wN' && ((P.b6 === 'bP' && P.c8 === 'bB') || P.b7 === 'bB')) {
     set('f4fian', ['f2f4'], F('Black is heading for …Bb7 aiming at g2: play f4 first — Nf3 would block your f-pawn and an early Bd3 leaves g2 loose.', 'ดำเตรียม …Bb7 เล็ง g2: เดิน f4 ก่อน — Nf3 จะบังเบี้ย f และ Bd3 เร็วไปจะทิ้ง g2 ไว้หลวม'));
+  }
+
+  // after f4 + e3 (Bf1 still guards g2 until then), …Bb7 stares at g2: Nf3 shuts the diagonal (…Bxf3 Qxf3 is fine), then Bd3
+  if (P.b7 === 'bB' && P.f4 === 'wP' && P.e3 === 'wP' && P.g1 === 'wN' && P.f1 === 'wB' && clear(P, ['c6', 'd5', 'e4', 'f3'])) {
+    set('nf3fian', ['g1f3'], F('The b7 bishop stares at g2: play Nf3 now to block the diagonal (if …Bxf3, Qxf3) — Bd3 comes after.', 'บิชอป b7 จ้อง g2: เดิน Nf3 ปิดแนวก่อน (ถ้า …Bxf3 ก็ Qxf3) แล้วค่อย Bd3'));
   }
 
   // ---- P1: both black knights out → Nd2 or c3 first? ----
@@ -3164,7 +3206,7 @@ function lessons(P, ctx) {
   // ---- P1: keep control of e4 (Bd3 + Nd2, and Qf3 against …Bb7) ----
   {
     const b = attackersOf(m, 'e4', 'b').length, w = attackersOf(m, 'e4', 'w').length;
-    if (P.b7 === 'bB' && b >= 2 && b >= w && P.d1 === 'wQ' && clear(P, ['e2', 'f3'])) set('qf3', ['d1f3'], F('…Bb7 adds a second attacker on e4: Qf3 makes three guards, so …Ne4 would just drop a pawn.', '…Bb7 เพิ่มแรงกด e4: Qf3 ทำให้เรามีตัวคุมสามตัว ถ้า …Ne4 ก็เสียเบี้ยฟรี'));
+    if (P.b7 === 'bB' && P.d3 === 'wB' && P.d2 === 'wN' && b >= 2 && b >= w && P.d1 === 'wQ' && clear(P, ['e2', 'f3'])) set('qf3', ['d1f3'], F('…Bb7 adds a second attacker on e4: Qf3 makes three guards, so …Ne4 would just drop a pawn.', '…Bb7 เพิ่มแรงกด e4: Qf3 ทำให้เรามีตัวคุมสามตัว ถ้า …Ne4 ก็เสียเบี้ยฟรี'));
   }
 
   // ---- P2: …c4 is a gift ----
@@ -3179,6 +3221,7 @@ function lessons(P, ctx) {
   if (isFrench(P)) notes.push({ kind: 'good', text: F("French-style setup: Black's light bishop is locked behind e6 — great news for your kingside attack.", 'ดำวางแบบ French: บิชอปช่องขาวของดำติดหลัง e6 — ข่าวดีสำหรับการบุกฝั่งคิง') });
   if (P.b6 === 'bQ' && P.c1 === 'wB') notes.push({ kind: 'info', text: F('…Qb6 is not scary here: your c1 bishop still guards b2.', '…Qb6 ไม่น่ากลัว: บิชอป c1 ยังคุม b2 อยู่') });
   if (P.b7 === 'bB') notes.push({ kind: 'warn', text: F('The b7 bishop stares at your king — prefer Qf3 before a rook lift.', 'บิชอป b7 จ้องคิงคุณ — เล่น Qf3 ก่อนยกเรือ') });
+  if (kid && P.e5 === 'bP' && P.d4 === 'wP') notes.push({ kind: 'warn', text: F('…e5: do NOT capture. Develop (Nc3) and let Black take first — then recapture with the e-pawn.', '…e5: อย่ากิน! พัฒนาหมาก (Nc3) แล้วรอให้ดำกินก่อน — จากนั้นกินคืนด้วยเบี้ย e') });
   if (kid) notes.push({ kind: 'warn', text: F("King's Indian setup (…d6/…g6): Ne5 is impossible. Switch plan — Be2, c4 + Nc3, aim for e4. Don't capture on e5!", "ดำวางแบบ King's Indian (…d6/…g6): ไป e5 ไม่ได้ — เปลี่ยนแผน Be2, c4 + Nc3 แล้วเล็ง e4 และอย่ากินที่ e5!") });
   if (P.e5 === 'wN' && blackShort) notes.push({ kind: 'info', text: F('If Black takes on e5, recapture fxe5 — the f6 knight gets kicked and the kingside opens.', 'ถ้าดำกินม้า e5 ให้กินคืนด้วย fxe5 — ม้า f6 จะถูกไล่และฝั่งคิงเปิด') });
 
@@ -3220,12 +3263,13 @@ function playerEvents(P, ctx) {
 const GUIDE_KID = [
   { id: 'kid-d4', moves: ['d2d4'], done: (P) => P.d4 === 'wP' || P.d5 === 'wP', text: F('d4.', 'd4') },
   { id: 'kid-e3', moves: ['e2e3'], done: (P) => P.e3 === 'wP' || P.e4 === 'wP', text: F('e3 — keep it as a reserve to recapture on d4/f4.', 'e3 — เก็บไว้กินคืนที่ d4/f4') },
+  { id: 'kid-f4', moves: ['f2f4'], done: (P) => P.f4 === 'wP' || P.f5 === 'wP' || P.e5 === 'wP', text: F('f4 — keep the Stonewall wall; the e3 pawn stays in reserve to recapture on d4/f4.', 'f4 — คงกำแพง Stonewall ไว้ เบี้ย e3 เก็บไว้กินคืนที่ d4/f4') },
   { id: 'kid-Be2', moves: ['f1e2'], done: (P, ctx) => ctx.history.some((m) => m.color === 'w' && m.from === 'f1'), text: F('Be2 — on d3 the bishop would only stare at the g6 pawn wall.', 'Be2 — ถ้าอยู่ d3 บิชอปจะแค่จ้องกำแพงเบี้ย g6') },
   { id: 'kid-Nf3', moves: ['g1f3'], done: (P, ctx) => ctx.history.some((m) => m.color === 'w' && m.from === 'g1'), text: F('Nf3.', 'Nf3') },
   { id: 'kid-OO', moves: ['e1g1'], done: (P, ctx) => ctx.history.some((m) => m.color === 'w' && m.piece === 'k'), text: F('Castle.', 'เข้าป้อม') },
   { id: 'kid-c4', moves: ['c2c4'], done: (P) => P.c4 === 'wP' || P.d5 === 'wP', text: F('c4 — be ambitious: a passive setup against a passive setup gets nothing.', 'c4 — ยึดกลางให้มาก เจอฝ่ายตั้งรับต้องรุกกลับ') },
   { id: 'kid-Nc3', moves: ['b1c3'], done: (P, ctx) => ctx.history.some((m) => m.color === 'w' && m.from === 'b1'), text: F('Nc3 — if …e5, ignore it and let Black capture first.', 'Nc3 — ถ้า …e5 ไม่ต้องสนใจ ปล่อยให้ดำกินก่อน') },
-  { id: 'kid-e4', moves: ['e3e4', 'f4f5'], done: (P) => P.e4 === 'wP' || P.e5 === 'wP' || P.f5 === 'wP', text: F('e4 — break open the centre, then e5 brings the Stonewall ideas back.', 'e4 — ทลายกลาง แล้ว e5 จะได้ไอเดีย Stonewall กลับมา') },
+  { id: 'kid-e4', moves: ['e3e4', 'f4f5'], done: (P) => P.e4 === 'wP' || P.e5 === 'wP' || P.f5 === 'wP' || P.e5 === 'bP', /* after …e5: wait, let Black take first */ text: F('e4 — break open the centre, then e5 brings the Stonewall ideas back.', 'e4 — ทลายกลาง แล้ว e5 จะได้ไอเดีย Stonewall กลับมา') },
 ];
 
 return { get SOURCE() { return SOURCE; }, get e5Threat() { return e5Threat; }, get isKID() { return isKID; }, get isFrench() { return isFrench; }, get lessons() { return lessons; }, get opponentEvents() { return opponentEvents; }, get playerEvents() { return playerEvents; }, get GUIDE_KID() { return GUIDE_KID; } };
@@ -4764,7 +4808,6 @@ class BoardView {
     el.dataset.type = type;
     el.dataset.color = color;
     el.dataset.pose = restPose(type);
-    el.style.setProperty('--bd', `-${(Math.random() * 3.4).toFixed(2)}s`); // breathe out of step
     el.innerHTML = pieceSVG(type, color);
     this.piecesEl.appendChild(el);
     this.pieces.set(sq, el);
@@ -4794,7 +4837,7 @@ class BoardView {
   async rise(el) {
     if (!el || el.dataset.pose !== 'kneel') return;
     el.dataset.pose = 'stand';
-    await this.fx.wait(420); // the 5-frame stand-up (css steps transition)
+    await this.fx.wait(250); // the quick 3-frame stand-up (css steps transition)
   }
 
   lerpAnchor(from, to, t) {
@@ -7599,24 +7642,30 @@ class GameController {
       play('alert');
       this.view.banner(`${meta.icon} ${C(v.cls)}`, { color: meta.color, dur: 1400 });
       const best = v.bestSan ? `<b>${v.bestSan}</b>` : '';
-      const bestLine = v.showBestNow && best ? `<p class="ca-best">✅ ${C('better', { best })}</p>` : best ? `<p class="ca-best hidden" id="ca-best">✅ ${C('better', { best })}</p><p class="muted">${C('betterHidden')}</p>` : '';
+      // why the move is bad (always shown) + why the engine move is better (hidden first for stronger players)
+      const why = `<div class="ca-sec"><h4>❌ ${C('whyHead')}</h4>${v.lines.map((l) => `<p>${l}</p>`).join('')}</div>`;
+      const betterBody = best ? `<h4>✅ ${C('betterHead', { best })}</h4>${(v.better || []).map((l) => `<p>${l}</p>`).join('')}` : '';
+      const bestLine = !best ? '' : v.showBestNow
+        ? `<div class="ca-sec ca-best">${betterBody}</div>`
+        : `<div class="ca-sec ca-best hidden" id="ca-best">${betterBody}</div><p class="muted" id="ca-hidden-note">${C('betterHidden')}</p>`;
       el.innerHTML = `
         <div class="ca-head" style="--cc:${meta.color}"><span class="cls-ico" style="background:${meta.color}">${meta.icon}</span> ${move.san} — ${C(v.cls)}</div>
-        ${v.lines.map((l) => `<p>${l}</p>`).join('')}
-        ${bestLine}
+        <div class="ca-scroll">${why}${bestLine}</div>
         <div class="ca-btns">
           <button class="primary" id="ca-undo">${C('takeBack')}</button>
           ${best && !v.showBestNow ? `<button id="ca-show">${C('showBest')}</button>` : ''}
           <button id="ca-go">${C('playOn')}</button>
         </div>`;
       el.classList.remove('hidden');
-      this.view.setArrows(v.replyArrow ? [v.replyArrow] : []);
+      const bestArrow = v.best ? { from: v.best.slice(0, 2), to: v.best.slice(2, 4), color: 'blue' } : null;
+      const arrows = (withBest) => this.view.setArrows([v.replyArrow, withBest && bestArrow].filter(Boolean));
+      arrows(v.showBestNow);
       this.coachSay(meta.icon, `<b>${move.san}</b> — ${C(v.cls)} ${v.lines.slice(1).join(' ')}`, 'warn');
       const done = (c) => { this.hideCoachAlert(); resolve(c); };
       $('ca-undo').onclick = () => done('undo');
       $('ca-go').onclick = () => done('go');
       const sb = $('ca-show');
-      if (sb) sb.onclick = () => { $('ca-best')?.classList.remove('hidden'); sb.remove(); };
+      if (sb) sb.onclick = () => { $('ca-best')?.classList.remove('hidden'); $('ca-hidden-note')?.remove(); sb.remove(); arrows(true); };
     });
   }
   hideCoachAlert() { $('coach-alert')?.classList.add('hidden'); }
@@ -7634,7 +7683,9 @@ class GameController {
     const last = h[h.length - 1];
     this.view.setLastMove(last?.from, last?.to);
     if (v?.best) this.overlay = { arrows: [{ from: v.best.slice(0, 2), to: v.best.slice(2, 4), color: 'blue' }], marks: [] };
-    this.coachSay('↶', v?.bestSan ? C('better', { best: `<b>${v.bestSan}</b>` }) : C('takeBack'), 'good');
+    this.coachSay('↶', v?.bestSan
+      ? `<b>${C('betterHead', { best: v.bestSan })}</b>${(v.better || []).map((l) => `<p>${l}</p>`).join('') || C('better', { best: `<b>${v.bestSan}</b>` })}`
+      : C('takeBack'), 'good');
     this.busy = false;
     this.refresh();
   }
@@ -7903,6 +7954,20 @@ const S = {
     better: 'Better was {best}.', betterHidden: 'There was a clearly better move — want to see it?',
     lookAt: 'Hint: look at your {piece} on {sq}.',
     takeBack: '↶ Take back', showBest: '👁 Show better move', playOn: 'Play on →',
+    whyHead: 'Why it is a mistake', betterHead: 'Why {best} is better',
+    lineIf: 'If the opponent plays well: {line}',
+    matLose: 'you end up losing {lost}{got} ({n}).', gotPart: ' for {got}', lostPart: ' (giving up {lost})',
+    forkBy: '{reply} is a double attack — it hits your {a} and your {b} at once.',
+    threatOn: 'The opponent answers {reply} and attacks your {piece}.',
+    leftLoose: 'This move leaves your {piece} on {sq} undefended.',
+    positional: 'No material is lost right away, but the opponent gets a clearly better game: {line}',
+    bestMate: '{best} leads to a forced mate in {n}: {line}',
+    bestWins: '{best} wins {got}{lost}: {line}',
+    bestSaves: '{best} takes your {piece} on {sq} out of the attack.',
+    bestDefends: '{best} defends your {piece} on {sq}.',
+    bestStops: 'After {best} the opponent no longer has {reply}.',
+    bestKeeps: 'After {best} the position stays at {a}; after your move it is {b}. Engine line: {line}',
+    bestLine: 'Engine line: {line}',
     oppBlunder: 'The opponent just made a big mistake! There is a strong move for you — can you find it?',
     oppBlunderHint: 'Look at your {piece} on {sq}.',
     evalWhite: 'White is better', evalBlack: 'Black is better', evalEqual: 'The position is roughly equal', evalWinning: 'is winning',
@@ -7953,6 +8018,20 @@ const S = {
     better: 'ตาที่ดีกว่าคือ {best}', betterHidden: 'มีตาที่ดีกว่านี้ชัดเจน — อยากดูไหม?',
     lookAt: 'ใบ้: ลองดู{piece}ที่ {sq}',
     takeBack: '↶ ย้อนกลับ', showBest: '👁 ดูตาที่ดีกว่า', playOn: 'เดินต่อ →',
+    whyHead: 'ทำไมตานี้พลาด', betterHead: 'ทำไม {best} ดีกว่า',
+    lineIf: 'ถ้าคู่แข่งเล่นถูก: {line}',
+    matLose: 'สุดท้ายคุณเสีย{lost}{got} ({n})', gotPart: ' แลกกับ{got}', lostPart: ' (ยอมเสีย{lost})',
+    forkBy: '{reply} เป็นการโจมตีสองทาง (fork) — ตี{a} และ{b} ของคุณพร้อมกัน',
+    threatOn: 'คู่แข่งตอบ {reply} แล้วโจมตี{piece} ของคุณ',
+    leftLoose: 'ตานี้ทำให้{piece}ที่ {sq} ไม่มีใครคุ้ม',
+    positional: 'ไม่ได้เสียหมากทันที แต่คู่แข่งได้เกมที่ดีกว่าชัดเจน: {line}',
+    bestMate: '{best} นำไปสู่รุกจนบังคับใน {n} ตา: {line}',
+    bestWins: '{best} ได้{got}{lost}: {line}',
+    bestSaves: '{best} พา{piece}ที่ {sq} หนีออกจากการถูกโจมตี',
+    bestDefends: '{best} ป้องกัน{piece}ที่ {sq}',
+    bestStops: 'ถ้าเดิน {best} คู่แข่งจะไม่มีตา {reply} ให้เล่น',
+    bestKeeps: 'หลัง {best} ตำแหน่งยังอยู่ที่ {a} แต่หลังตาของคุณเหลือ {b} — ไลน์ของเอนจิน: {line}',
+    bestLine: 'ไลน์ของเอนจิน: {line}',
     oppBlunder: 'คู่แข่งเพิ่งพลาดหนัก! มีตาเดินที่แรงมากรอคุณอยู่ — หาเจอไหม?',
     oppBlunderHint: 'ลองดู{piece}ที่ {sq}',
     evalWhite: 'ขาวได้เปรียบ', evalBlack: 'ดำได้เปรียบ', evalEqual: 'สูสี', evalWinning: 'กำลังชนะ',
@@ -8011,6 +8090,64 @@ function fmtEv(cp, mate) {
   return (cp > 0 ? '+' : '') + (cp / 100).toFixed(1);
 }
 
+// ---------- explaining lines ----------
+const TYPES = ['q', 'r', 'b', 'n', 'p'];
+function counts(chess) {
+  const c = { w: {}, b: {} };
+  for (const row of chess.board()) for (const p of row) if (p) c[p.color][p.type] = (c[p.color][p.type] || 0) + 1;
+  return c;
+}
+// "12…Nxe4 13.Bxe4 d5" — numbered SAN for a list of moves starting at `fen`
+function fmtLine(fen, sans) {
+  const [, turn, , , , full] = fen.split(' ');
+  let n = +full, w = turn === 'w';
+  return sans.map((san, i) => {
+    const s = w ? `${n}.${san}` : i === 0 ? `${n}…${san}` : san;
+    if (!w) n++;
+    w = !w;
+    return s;
+  }).join(' ');
+}
+/**
+ * Play an engine line and settle the material: stop at the first quiet point after the first capture
+ * (the next move is not a capture), so a capture and its recaptures count together and the shown line
+ * ends where the damage is done. Returns material won/lost from `color`'s view.
+ */
+function walkLine(fen, pv, color, maxPlies = 8) {
+  const c = new Chess(fen);
+  const start = counts(c);
+  const sans = [];
+  let settled = { sans: [], end: start };
+  let captured = false;
+  const list = (pv || []).slice(0, maxPlies);
+  for (let i = 0; i < list.length; i++) {
+    const u = list[i];
+    let mv;
+    try { mv = c.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] }); } catch { break; }
+    sans.push(mv.san);
+    if (mv.captured) captured = true;
+    let nextCap = false;
+    const nu = list[i + 1];
+    if (nu) { try { const t = new Chess(c.fen()); nextCap = !!t.move({ from: nu.slice(0, 2), to: nu.slice(2, 4), promotion: nu[4] }).captured; } catch {} }
+    if (!nextCap) {
+      settled = { sans: [...sans], end: counts(c) };
+      if (captured) break;
+    }
+  }
+  const opp = other(color);
+  const lost = {}, got = {};
+  let n = 0;
+  for (const tp of TYPES) {
+    const l = (start[color][tp] || 0) - (settled.end[color][tp] || 0);
+    const g = (start[opp][tp] || 0) - (settled.end[opp][tp] || 0);
+    if (l > 0) lost[tp] = l;
+    if (g > 0) got[tp] = g;
+    n += (g - l) * VALUE[tp];
+  }
+  return { sans: settled.sans.length ? settled.sans : sans.slice(0, 1), allSans: sans, lost, got, n, line: fmtLine(fen, settled.sans.length ? settled.sans : sans.slice(0, 1)) };
+}
+const pieceList = (o) => TYPES.filter((tp) => o[tp]).map((tp) => (o[tp] > 1 ? `${pn(tp)} ${o[tp]}` : pn(tp))).join(', ');
+
 class Coach {
   constructor(engine) {
     this.engine = engine;
@@ -8041,28 +8178,96 @@ class Coach {
     const cls = loss >= 20 ? 'blunder' : loss >= 10 ? 'mistake' : null;
     if (!cls) return null;
     const lv = levelOf(elo);
+    const color = move.color, opp = other(color);
     const reply = post.lines[0]?.pv?.[0];
     const replySan = uciToSan(fenAfter, reply);
-    let replyCap = null;
-    try { replyCap = new Chess(fenAfter).move({ from: reply.slice(0, 2), to: reply.slice(2, 4), promotion: reply[4] }).captured || null; } catch {}
-    const lines = [];
-    lines.push(C('evalSwing', { a: fmtEv(pre.cp, pre.mate), b: fmtEv(post.cp, post.mate) }));
+    const bestSan = uciToSan(fenBefore, pre.best);
+    const b = (x) => `<b>${x}</b>`;
+    const signed = (n) => (n > 0 ? '+' : '−') + Math.abs(n);
+
+    // ---- why the played move is bad: play the opponent's best answer and see what it costs ----
+    const lines = [C('evalSwing', { a: fmtEv(pre.cp, pre.mate), b: fmtEv(post.cp, post.mate) })];
     const oppMate = post.mate != null && s * post.mate < 0 ? Math.abs(post.mate) : null;
     if (pre.mate != null && s * pre.mate > 0 && !(post.mate != null && s * post.mate > 0)) lines.push(C('missedMate'));
-    if (oppMate) lines.push(lv <= 1 ? C('mateAgainstMove', { n: oppMate, reply: `<b>${replySan}</b>` }) : C('mateAgainst', { n: oppMate }));
-    else if (replyCap && replyCap !== 'p' || replyCap === 'p' && cls === 'blunder') {
-      if (lv <= 1) lines.push(C('loses', { reply: `<b>${replySan}</b>`, piece: pn(replyCap) }));
-      else if (lv === 2) lines.push(C('losesVague', { piece: pn(replyCap) }));
+    const W = walkLine(fenAfter, post.lines[0]?.pv, color);
+    const mPre = boardMap(new Chess(fenBefore)), mPost = boardMap(new Chess(fenAfter));
+    let concrete = false;
+    if (oppMate) {
+      const mateLine = fmtLine(fenAfter, W.allSans.slice(0, Math.min(W.allSans.length, oppMate * 2 - 1)));
+      lines.push(C('mateAgainstMove', { n: oppMate, reply: b(replySan) }) + ` — ${mateLine}`);
+      concrete = true;
+    } else {
+      if (W.n < 0) {
+        const got = pieceList(W.got);
+        lines.push(`${C('lineIf', { line: b(W.line) })} → ${C('matLose', { lost: pieceList(W.lost), got: got ? C('gotPart', { got }) : '', n: signed(W.n) })}`);
+        concrete = true;
+      }
+      // what does the reply hit? two targets = a fork / double attack, one = a direct threat
+      try {
+        const c = new Chess(fenAfter);
+        const mv = c.move({ from: reply.slice(0, 2), to: reply.slice(2, 4), promotion: reply[4] });
+        const m = boardMap(c);
+        const looseNow = new Set(this.loose(m, color).map((x) => x.sq));
+        const hit = attacks(m, mv.to).filter((sq) => m[sq]?.color === color
+          && (m[sq].type === 'k' || looseNow.has(sq) || VALUE[m[sq].type] > VALUE[mv.piece]));
+        hit.sort((x, y) => VALUE[m[y].type] - VALUE[m[x].type]);
+        const nm = (sq) => `${pn(m[sq].type)} (${sq})`;
+        if (hit.length >= 2) { lines.push(C('forkBy', { reply: b(replySan), a: nm(hit[0]), b: nm(hit[1]) })); concrete = true; }
+        else if (hit.length === 1 && m[hit[0]].type !== 'p' && W.n >= 0) { lines.push(C('threatOn', { reply: b(replySan), piece: nm(hit[0]) })); concrete = true; }
+      } catch {}
+      // the moved piece itself left hanging, or a piece it used to protect
+      if (move.piece !== 'k' && attackersOf(mPost, move.to, opp).length && !attackersOf(mPost, move.to, color).length) {
+        lines.push(C('hangingMoved', { piece: pn(move.piece), sq: move.to }));
+        concrete = true;
+      } else {
+        const before = new Set(this.loose(mPre, color).map((x) => x.sq));
+        const fresh = this.loose(mPost, color).find((x) => x.sq !== move.to && !before.has(x.sq) && x.type !== 'p');
+        if (fresh) { lines.push(C('leftLoose', { piece: pn(fresh.type), sq: fresh.sq })); concrete = true; }
+      }
+      if (!concrete) lines.push(C('positional', { line: b(fmtLine(fenAfter, W.allSans.slice(0, 4))) }));
     }
-    // the moved piece itself left hanging?
-    const m = boardMap(new Chess(fenAfter));
-    const opp = other(move.color);
-    if (move.piece !== 'k' && attackersOf(m, move.to, opp).length && !attackersOf(m, move.to, move.color).length && lv <= 2) lines.push(C('hangingMoved', { piece: pn(move.piece), sq: move.to }));
-    const bestSan = uciToSan(fenBefore, pre.best);
+
+    // ---- why the engine's move is better: play its line ----
+    const better = [];
+    if (pre.best) {
+      const B = walkLine(fenBefore, pre.lines[0]?.pv, color);
+      const longLine = b(fmtLine(fenBefore, B.allSans.slice(0, 5)));
+      if (pre.mate != null && s * pre.mate > 0) {
+        better.push(C('bestMate', { best: b(bestSan), n: s * pre.mate, line: b(fmtLine(fenBefore, B.allSans.slice(0, s * pre.mate * 2 - 1))) }));
+      } else if (B.n > 0 && B.n > W.n) {
+        const lost = pieceList(B.lost);
+        better.push(C('bestWins', { best: b(bestSan), got: pieceList(B.got), lost: lost ? C('lostPart', { lost }) : '', line: b(B.line) }));
+      } else {
+        const from = pre.best.slice(0, 2);
+        const looseBefore = this.loose(mPre, color);
+        const fled = looseBefore.find((x) => x.sq === from);
+        let saved = null;
+        if (!fled) {
+          try {
+            const c = new Chess(fenBefore);
+            c.move({ from, to: pre.best.slice(2, 4), promotion: pre.best[4] });
+            const after = new Set(this.loose(boardMap(c), color).map((x) => x.sq));
+            saved = looseBefore.find((x) => !after.has(x.sq));
+          } catch {}
+        }
+        let stops = false;
+        try {
+          const c = new Chess(fenBefore);
+          c.move({ from, to: pre.best.slice(2, 4), promotion: pre.best[4] });
+          stops = !!reply && !c.moves({ verbose: true }).some((x) => x.from + x.to + (x.promotion || '') === reply);
+        } catch {}
+        if (fled) better.push(C('bestSaves', { best: b(bestSan), piece: pn(fled.type), sq: fled.sq }));
+        else if (saved) better.push(C('bestDefends', { best: b(bestSan), piece: pn(saved.type), sq: saved.sq }));
+        if (stops && !oppMate && replySan) better.push(C('bestStops', { best: b(bestSan), reply: b(replySan) }));
+        better.push(fled || saved
+          ? C('bestLine', { line: longLine })
+          : C('bestKeeps', { best: b(bestSan), a: fmtEv(pre.cp, pre.mate), b: fmtEv(post.cp, post.mate), line: longLine }));
+      }
+    }
     return {
-      cls, loss, lines, level: lv,
+      cls, loss, lines, better, level: lv,
       best: pre.best, bestSan, showBestNow: lv <= 1,
-      reply, replyArrow: lv <= 1 && reply ? { from: reply.slice(0, 2), to: reply.slice(2, 4), color: 'red' } : null,
+      reply, replyArrow: reply ? { from: reply.slice(0, 2), to: reply.slice(2, 4), color: 'red' } : null,
     };
   }
 
