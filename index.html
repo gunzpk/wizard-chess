@@ -217,6 +217,7 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
 .piece .p-upper, .piece .p-arm, .piece .sword, .piece .p-shield, .piece .p-grip, .piece .blade, .piece .staff, .piece .orb {
   transition: transform calc(.25s / var(--fxs, 1)) steps(3, jump-end), opacity calc(.25s / var(--fxs, 1)) steps(2, jump-end);
 }
+.piece.snap, .piece.snap * { transition: none !important; }
 .piece .p-legs-stand, .piece .p-legs-kneel { transition: opacity calc(.25s / var(--fxs, 1)) steps(2, jump-end); }
 .piece .p-legs-kneel, .piece .p-grip { opacity: 0; }
 /* pawn kneeling (rest pose): one knee down, sword held upright in the hand (never flipped — flipping it
@@ -4834,10 +4835,16 @@ class BoardView {
     }
   }
   // Rise from kneeling before acting (no-op for standing pieces).
-  async rise(el) {
+  // Kneeling pawn → standing, instantly: no stand-up animation before it sets off.
+  rise(el) {
     if (!el || el.dataset.pose !== 'kneel') return;
-    el.dataset.pose = 'stand';
-    await this.fx.wait(250); // the quick 3-frame stand-up (css steps transition)
+    this.snapPose(el, 'stand');
+  }
+  snapPose(el, pose) {
+    el.classList.add('snap'); // .snap disables the pose transitions
+    el.dataset.pose = pose;
+    void el.offsetWidth;
+    requestAnimationFrame(() => el.classList.remove('snap'));
   }
 
   lerpAnchor(from, to, t) {
@@ -4976,7 +4983,6 @@ class BoardView {
       this.emit('press', sq);
       if (canDrag) {
         drag = { sq, el: pieceEl, sx: e.clientX, sy: e.clientY, moved: false, start: { x: parseFloat(pieceEl.style.left), y: parseFloat(pieceEl.style.top), w: parseFloat(pieceEl.style.width) } };
-        if (pieceEl.dataset.pose === 'kneel') pieceEl.dataset.pose = 'stand';
         try { stage.setPointerCapture(e.pointerId); } catch {} // synthetic/cancelled pointers can't be captured
       }
     });
@@ -4984,6 +4990,7 @@ class BoardView {
       if (!drag) return;
       if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 6) return;
       drag.moved = true;
+      if (drag.el.dataset.pose === 'kneel') this.snapPose(drag.el, 'stand'); // only once it is really dragged
       const sr = this.stage.getBoundingClientRect();
       drag.el.classList.add('dragging');
       drag.el.style.left = e.clientX - sr.left + 'px';
